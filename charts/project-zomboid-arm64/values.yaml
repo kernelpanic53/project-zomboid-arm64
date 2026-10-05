@@ -1,0 +1,138 @@
+nameOverride: ""
+fullnameOverride: ""
+commonLabels: {}
+
+image:
+  repository: ghcr.io/kernelpanic53/project-zomboid-arm64
+  tag: latest
+  digest: ""
+  pullPolicy: Always
+imagePullSecrets: []
+
+server:
+  name: servertest
+  displayName: "Project Zomboid ARM64"
+  branch: public
+  public: false
+  port: 16261
+  udpPort: 16262
+  steamPort1: 8766
+  steamPort2: 8767
+  rconPort: 27015
+  memory: 4G
+  memoryXms: ""
+  memoryXmx: ""
+  updateOnStart: true
+  adminUsername: admin
+  debug: false
+  noSteam: false
+  workshopIds: ""
+  modIds: ""
+  javaExtraArgs: ""
+
+secret:
+  # Prefer creating this Secret outside Helm so passwords do not end up in Helm history.
+  existingName: ""
+  adminPassword: ""
+  serverPassword: ""
+  rconPassword: ""
+  keys:
+    adminPassword: admin-password
+    serverPassword: server-password
+    rconPassword: rcon-password
+
+service:
+  type: LoadBalancer
+  annotations: {}
+  labels: {}
+  loadBalancerClass: ""
+  loadBalancerIP: ""
+  loadBalancerSourceRanges: []
+  externalTrafficPolicy: ""
+  allocateLoadBalancerNodePorts: null
+  nodePorts:
+    game: null
+    game2: null
+    steam1: null
+    steam2: null
+    rcon: null
+
+persistence:
+  server:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+    annotations: {}
+    selector: {}
+  config:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 4Gi
+    annotations: {}
+    selector: {}
+
+podAnnotations: {}
+podLabels: {}
+automountServiceAccountToken: false
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: "2"
+    memory: 4Gi
+  limits:
+    cpu: "4"
+    memory: 8Gi
+
+startupProbe:
+  enabled: true
+  failureThreshold: 90
+  periodSeconds: 10
+  timeoutSeconds: 5
+readinessProbe:
+  enabled: true
+  failureThreshold: 6
+  periodSeconds: 15
+  timeoutSeconds: 5
+livenessProbe:
+  enabled: true
+  failureThreshold: 6
+  periodSeconds: 30
+  timeoutSeconds: 5
+
+terminationGracePeriodSeconds: 120
+updateStrategy:
+  type: RollingUpdate
+
+nodeSelector:
+  kubernetes.io/arch: arm64
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+runtimeClassName: ""
+schedulerName: ""
+
+emptyDir:
+  tmp: {}

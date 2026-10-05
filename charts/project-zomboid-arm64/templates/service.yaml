@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pz.fullname" . }}
+  labels:
+    {{- include "pz.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- with .Values.service.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- with .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- if kindIs "bool" .Values.service.allocateLoadBalancerNodePorts }}
+  allocateLoadBalancerNodePorts: {{ .Values.service.allocateLoadBalancerNodePorts }}
+  {{- end }}
+  selector:
+    {{- include "pz.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: game
+      port: {{ .Values.server.port }}
+      protocol: UDP
+      targetPort: game
+      {{- with .Values.service.nodePorts.game }}
+      nodePort: {{ . }}
+      {{- end }}
+    - name: game2
+      port: {{ .Values.server.udpPort }}
+      protocol: UDP
+      targetPort: game2
+      {{- with .Values.service.nodePorts.game2 }}
+      nodePort: {{ . }}
+      {{- end }}
+    - name: steam1
+      port: {{ .Values.server.steamPort1 }}
+      protocol: UDP
+      targetPort: steam1
+      {{- with .Values.service.nodePorts.steam1 }}
+      nodePort: {{ . }}
+      {{- end }}
+    - name: steam2
+      port: {{ .Values.server.steamPort2 }}
+      protocol: UDP
+      targetPort: steam2
+      {{- with .Values.service.nodePorts.steam2 }}
+      nodePort: {{ . }}
+      {{- end }}
+    - name: rcon
+      port: {{ .Values.server.rconPort }}
+      protocol: TCP
+      targetPort: rcon
+      {{- with .Values.service.nodePorts.rcon }}
+      nodePort: {{ . }}
+      {{- end }}

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: project-zomboid-arm64
+description: Project Zomboid dedicated server for ARM64 Kubernetes nodes using Box64
+type: application
+version: 0.1.0
+appVersion: "42"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/kernelpanic53/project-zomboid-arm64
+sources:
+  - https://github.com/kernelpanic53/project-zomboid-arm64
+maintainers:
+  - name: kernelpanic53
+annotations:
+  artifacthub.io/license: MIT

@@ -2,7 +2,6 @@
 
 ARM64 Kubernetes/Docker image for the Project Zomboid dedicated server.
 
-This image follows the architecture used by `zhmarvi/valheim-arm64`:
 
 - Debian ARM64 runtime
 - native ARM64 DepotDownloader to retrieve Steam AppID `380870`
@@ -11,9 +10,6 @@ This image follows the architecture used by `zhmarvi/valheim-arm64`:
 - persistent game-install and server-config volumes
 - non-root runtime user
 - Helm chart with MetalLB/LoadBalancer-friendly UDP/TCP services
-
-The upstream Project Zomboid fork remains the reference for environment-driven
-server configuration and Workshop/INI behavior.
 
 ## Build
 

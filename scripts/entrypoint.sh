@@ -21,10 +21,6 @@ UPDATE_ON_START="${UPDATE_ON_START:-true}"
 
 mkdir -p "$SERVER_DIR" "$CONFIG_DIR"
 
-# -----------------------------------------------------------------------------
-# Verify required tools
-# -----------------------------------------------------------------------------
-
 if [[ ! -x "$DD" ]]; then
     log "ERROR: DepotDownloader not found at $DD"
     exit 1
@@ -39,10 +35,6 @@ if ! command -v jq >/dev/null 2>&1; then
     log "ERROR: jq was not found"
     exit 1
 fi
-
-# -----------------------------------------------------------------------------
-# Install/update Project Zomboid
-# -----------------------------------------------------------------------------
 
 install_server() {
     local args=(
@@ -75,6 +67,10 @@ install_server() {
         chmod 0755 "$SERVER_DIR/jre64/bin/java"
     fi
 
+    if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then
+        chmod 0755 "$SERVER_DIR/jre64/lib/jspawnhelper"
+    fi
+
     if [[ ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
         log "ERROR: ProjectZomboid64 was not installed"
         exit 1
@@ -87,10 +83,6 @@ if [[ "${UPDATE_ON_START,,}" == "true" ||
 else
     log "UPDATE_ON_START=false and server files already exist; skipping update"
 fi
-
-# -----------------------------------------------------------------------------
-# Persistent Project Zomboid configuration
-# -----------------------------------------------------------------------------
 
 mkdir -p \
     "$CONFIG_DIR/Server" \
@@ -106,20 +98,52 @@ fi
 
 touch "$SERVER_INI"
 
+#
+# Safely update a Project Zomboid INI setting.
+#
+# PZ-generated INI files can contain CRLF line endings and, depending
+# on how the file was initially generated, may not have a final newline.
+# Using awk here guarantees every resulting setting is newline-delimited.
+#
 set_ini() {
     local key="$1"
     local value="$2"
+    local tmp
 
-    if grep -q "^${key}=" "$SERVER_INI"; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$SERVER_INI"
-    else
-        printf '%s=%s\n' "$key" "$value" >> "$SERVER_INI"
-    fi
+    tmp="$(mktemp "${SERVER_INI}.XXXXXX")"
+
+    awk -v key="$key" -v value="$value" '
+        BEGIN {
+            found = 0
+        }
+
+        {
+            line = $0
+
+            # Normalize CRLF to LF.
+            sub(/\r$/, "", line)
+
+            if (line ~ "^" key "=") {
+                print key "=" value
+                found = 1
+            } else {
+                print line
+            }
+        }
+
+        END {
+            if (!found) {
+                print key "=" value
+            }
+        }
+    ' "$SERVER_INI" > "$tmp"
+
+    mv "$tmp" "$SERVER_INI"
 }
 
-# -----------------------------------------------------------------------------
+#
 # Server configuration
-# -----------------------------------------------------------------------------
+#
 
 set_ini "Public" "${SERVER_PUBLIC:-false}"
 
@@ -148,9 +172,9 @@ if [[ -n "${MOD_IDS:-}" ]]; then
     set_ini "Mods" "${MOD_IDS}"
 fi
 
-# -----------------------------------------------------------------------------
+#
 # Box64 / Java environment
-# -----------------------------------------------------------------------------
+#
 
 export PATH="/usr/local/bin:/usr/bin:/bin"
 
@@ -172,9 +196,9 @@ if ! command -v java >/dev/null 2>&1; then
     exit 1
 fi
 
-# -----------------------------------------------------------------------------
+#
 # JVM memory configuration
-# -----------------------------------------------------------------------------
+#
 
 if [[ -n "${MEMORY_XMS:-}" ]]; then
     XMS="$MEMORY_XMS"
@@ -188,9 +212,9 @@ else
     XMX="$MEMORY"
 fi
 
-# -----------------------------------------------------------------------------
-# Project Zomboid JVM configuration
-# -----------------------------------------------------------------------------
+#
+# Update ProjectZomboid64.json JVM arguments.
+#
 
 JSON_FILE="$SERVER_DIR/ProjectZomboid64.json"
 
@@ -259,12 +283,13 @@ if [[ -f "$JSON_FILE" ]]; then
     mv "$TMP_JSON" "$JSON_FILE"
 fi
 
-# -----------------------------------------------------------------------------
-# Verify bundled Java through Box64
-# -----------------------------------------------------------------------------
+#
+# Diagnostics
+#
 
 log "Java wrapper: $(command -v java)"
 log "Bundled Java: $JAVA_BIN"
+
 log "Testing bundled x86_64 Java through Box64..."
 
 if ! java -version 2>&1; then
@@ -274,9 +299,23 @@ fi
 
 log "Java runtime successfully started through Box64"
 
-# -----------------------------------------------------------------------------
-# Start Project Zomboid
-# -----------------------------------------------------------------------------
+#
+# Verify the critical INI settings before starting the server.
+#
+
+log "Project Zomboid configuration:"
+log "  Server name: ${SERVER_NAME}"
+log "  Game port: ${SERVER_PORT}"
+log "  UDP port: ${UDP_PORT}"
+log "  Steam port 1: ${STEAM_PORT_1}"
+log "  Steam port 2: ${STEAM_PORT_2}"
+log "  RCON port: ${RCON_PORT}"
+log "  Memory: ${XMS} - ${XMX}"
+
+if grep -nE '^ChatMessageSlowModeTime=|^SteamPort1=|^SteamPort2=' "$SERVER_INI" >/dev/null 2>&1; then
+    log "Relevant server INI settings:"
+    grep -nE '^ChatMessageSlowModeTime=|^SteamPort1=|^SteamPort2=' "$SERVER_INI" || true
+fi
 
 cd "$SERVER_DIR"
 
@@ -318,9 +357,9 @@ log "Steam UDP: ${STEAM_PORT_1}/${STEAM_PORT_2}"
 log "RCON TCP: ${RCON_PORT}"
 log "Box64: ${BOX64_VERSION}"
 
-# -----------------------------------------------------------------------------
-# Graceful Kubernetes shutdown
-# -----------------------------------------------------------------------------
+#
+# Use a FIFO so SIGTERM can gracefully tell Project Zomboid to save and quit.
+#
 
 CONSOLE_FIFO="/tmp/pz-console"
 
@@ -359,6 +398,7 @@ trap shutdown TERM INT
 trap cleanup EXIT
 
 box64 "$SERVER_DIR/ProjectZomboid64" "${ARGS[@]}" <"$CONSOLE_FIFO" &
+
 SERVER_PID=$!
 
 wait "$SERVER_PID"

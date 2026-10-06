@@ -17,11 +17,12 @@ STEAM_PORT_1="${STEAM_PORT_1:-8766}"
 STEAM_PORT_2="${STEAM_PORT_2:-8767}"
 RCON_PORT="${RCON_PORT:-27015}"
 MEMORY="${MEMORY:-4G}"
+UPDATE_ON_START="${UPDATE_ON_START:-true}"
 
 mkdir -p "$SERVER_DIR" "$CONFIG_DIR"
 
 # -----------------------------------------------------------------------------
-# Verify required tools.
+# Verify required tools
 # -----------------------------------------------------------------------------
 
 if [[ ! -x "$DD" ]]; then
@@ -40,7 +41,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# Install/update Project Zomboid.
+# Install/update Project Zomboid
 # -----------------------------------------------------------------------------
 
 install_server() {
@@ -62,8 +63,6 @@ install_server() {
 
     "$DD" "${args[@]}"
 
-    # DepotDownloader does not necessarily preserve executable bits from
-    # the depot. Only mark known executable files as executable.
     if [[ -f "$SERVER_DIR/ProjectZomboid64" ]]; then
         chmod 0755 "$SERVER_DIR/ProjectZomboid64"
     fi
@@ -82,20 +81,16 @@ install_server() {
     fi
 }
 
-UPDATE_ON_START="${UPDATE_ON_START:-true}"
-
-if [[ "${UPDATE_ON_START,,}" == "true" || ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
+if [[ "${UPDATE_ON_START,,}" == "true" ||
+    ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
     install_server
 else
     log "UPDATE_ON_START=false and server files already exist; skipping update"
 fi
 
 # -----------------------------------------------------------------------------
-# Persistent Project Zomboid configuration.
+# Persistent Project Zomboid configuration
 # -----------------------------------------------------------------------------
-
-# Project Zomboid stores persistent server/world configuration under ~/Zomboid.
-# Keep it outside the game-install PVC so image updates do not touch it.
 
 mkdir -p \
     "$CONFIG_DIR/Server" \
@@ -123,7 +118,7 @@ set_ini() {
 }
 
 # -----------------------------------------------------------------------------
-# Server configuration.
+# Server configuration
 # -----------------------------------------------------------------------------
 
 set_ini "Public" "${SERVER_PUBLIC:-false}"
@@ -154,19 +149,16 @@ if [[ -n "${MOD_IDS:-}" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Box64 environment.
+# Box64 / Java environment
 # -----------------------------------------------------------------------------
-
-# pzexe invokes "java" by name, so /usr/local/bin must be in PATH.
-# /usr/local/bin/java is our Box64 wrapper for the bundled x86_64 JRE.
 
 export PATH="/usr/local/bin:/usr/bin:/bin"
 
 export BOX64_PATH="$SERVER_DIR/jre64/bin:/usr/local/bin:/usr/bin:/bin"
 
-export BOX64_LD_LIBRARY_PATH="$SERVER_DIR/linux64:$SERVER_DIR/natives:$SERVER_DIR/jre64/lib:$SERVER_DIR/jre64/lib/server:${BOX64_LD_LIBRARY_PATH:-}"
+export BOX64_LD_LIBRARY_PATH="$SERVER_DIR/linux64:$SERVER_DIR/natives:$SERVER_DIR/jre64/lib:$SERVER_DIR/jre64/lib/server${BOX64_LD_LIBRARY_PATH:+:$BOX64_LD_LIBRARY_PATH}"
 
-export LD_LIBRARY_PATH="$SERVER_DIR/linux64:$SERVER_DIR/natives:$SERVER_DIR/jre64/lib:$SERVER_DIR/jre64/lib/server:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$SERVER_DIR/linux64:$SERVER_DIR/natives:$SERVER_DIR/jre64/lib:$SERVER_DIR/jre64/lib/server${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 JAVA_BIN="$SERVER_DIR/jre64/bin/java"
 
@@ -181,7 +173,7 @@ if ! command -v java >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# JVM memory configuration.
+# JVM memory configuration
 # -----------------------------------------------------------------------------
 
 if [[ -n "${MEMORY_XMS:-}" ]]; then
@@ -197,7 +189,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Project Zomboid JVM configuration.
+# Project Zomboid JVM configuration
 # -----------------------------------------------------------------------------
 
 JSON_FILE="$SERVER_DIR/ProjectZomboid64.json"
@@ -205,7 +197,7 @@ JSON_FILE="$SERVER_DIR/ProjectZomboid64.json"
 if [[ -f "$JSON_FILE" ]]; then
     TMP_JSON="${JSON_FILE}.tmp"
 
-    if ! jq \
+    jq \
         --arg xms "$XMS" \
         --arg xmx "$XMX" \
         --arg extra "${JAVA_EXTRA_ARGS:-}" \
@@ -221,13 +213,15 @@ if [[ -f "$JSON_FILE" ]]; then
                 |
                 map(select(length > 0))
                 |
-                map(select(
-                    (
-                        startswith("-Xms")
-                        or startswith("-Xmx")
-                        or startswith("-XX:")
-                    ) | not
-                ))
+                map(
+                    select(
+                        (
+                            startswith("-Xms")
+                            or startswith("-Xmx")
+                            or startswith("-XX:")
+                        ) | not
+                    )
+                )
                 +
                 [
                     "-Xms" + $xms,
@@ -241,8 +235,12 @@ if [[ -f "$JSON_FILE" ]]; then
                 +
                 (
                     if ($extra | length) > 0
-                    then $extra | split(" ") | map(select(length > 0))
-                    else []
+                    then
+                        $extra
+                        | split(" ")
+                        | map(select(length > 0))
+                    else
+                        []
                     end
                 )
             )
@@ -251,11 +249,6 @@ if [[ -f "$JSON_FILE" ]]; then
         |
         .maxHeap = $xmx
         ' "$JSON_FILE" > "$TMP_JSON"
-    then
-        rm -f "$TMP_JSON"
-        log "ERROR: Failed to update $JSON_FILE"
-        exit 1
-    fi
 
     if ! jq empty "$TMP_JSON" >/dev/null 2>&1; then
         rm -f "$TMP_JSON"
@@ -267,7 +260,7 @@ if [[ -f "$JSON_FILE" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Verify the bundled JVM through Box64 before starting Project Zomboid.
+# Verify bundled Java through Box64
 # -----------------------------------------------------------------------------
 
 log "Java wrapper: $(command -v java)"
@@ -282,7 +275,7 @@ fi
 log "Java runtime successfully started through Box64"
 
 # -----------------------------------------------------------------------------
-# Start Project Zomboid.
+# Start Project Zomboid
 # -----------------------------------------------------------------------------
 
 cd "$SERVER_DIR"
@@ -298,10 +291,6 @@ if [[ -n "${ADMIN_USERNAME:-}" ]]; then
         "-adminusername" "$ADMIN_USERNAME"
     )
 fi
-
-# Only pass the admin password on first boot.
-# Project Zomboid can expose command-line arguments in logs, so repeating the
-# password on every restart unnecessarily exposes the secret.
 
 if [[ "$FIRST_BOOT" == "true" && -n "${ADMIN_PASSWORD:-}" ]]; then
     ARGS+=(
@@ -321,17 +310,16 @@ if [[ "${NOSTEAM:-false}" == "true" ]]; then
     )
 fi
 
+BOX64_VERSION="$(box64 --version 2>&1 || true)"
+
 log "Starting Project Zomboid ${SERVER_NAME}"
 log "Game UDP: ${SERVER_PORT}/${UDP_PORT}"
 log "Steam UDP: ${STEAM_PORT_1}/${STEAM_PORT_2}"
 log "RCON TCP: ${RCON_PORT}"
-log "Box64: $(box64 --version 2>&1 | head -n 1)"
+log "Box64: ${BOX64_VERSION}"
 
 # -----------------------------------------------------------------------------
-# Graceful Kubernetes shutdown.
-#
-# Project Zomboid reads commands from stdin. A FIFO allows the SIGTERM handler
-# to send "save" and "quit" to the server before the container exits.
+# Graceful Kubernetes shutdown
 # -----------------------------------------------------------------------------
 
 CONSOLE_FIFO="/tmp/pz-console"
@@ -374,6 +362,3 @@ box64 "$SERVER_DIR/ProjectZomboid64" "${ARGS[@]}" <"$CONSOLE_FIFO" &
 SERVER_PID=$!
 
 wait "$SERVER_PID"
-STATUS=$?
-
-exit "$STATUS"

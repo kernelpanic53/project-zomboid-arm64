@@ -1,110 +1,176 @@
 #!/bin/bash
-set -euo pipefail
 
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-}
+set -Eeuo pipefail
 
 SERVER_DIR="${PZ_SERVER_DIR:-/opt/zomboid}"
 CONFIG_DIR="${PZ_CONFIG_DIR:-/config}"
-DD="${DEPOTDOWNLOADER_DIR:-/opt/depotdownloader}/DepotDownloader"
+DEPOTDOWNLOADER_DIR="${DEPOTDOWNLOADER_DIR:-/opt/depotdownloader}"
 
-BRANCH="${SERVER_BRANCH:-public}"
 SERVER_NAME="${SERVER_NAME:-servertest}"
+SERVER_BRANCH="${SERVER_BRANCH:-public}"
+SERVER_PUBLIC="${SERVER_PUBLIC:-false}"
 SERVER_PORT="${SERVER_PORT:-16261}"
-UDP_PORT="${SERVER_UDP_PORT:-16262}"
+SERVER_UDP_PORT="${SERVER_UDP_PORT:-16262}"
 STEAM_PORT_1="${STEAM_PORT_1:-8766}"
 STEAM_PORT_2="${STEAM_PORT_2:-8767}"
 RCON_PORT="${RCON_PORT:-27015}"
+
 MEMORY="${MEMORY:-4G}"
+MEMORY_XMS="${MEMORY_XMS:-}"
+MEMORY_XMX="${MEMORY_XMX:-}"
+
 UPDATE_ON_START="${UPDATE_ON_START:-true}"
 
-mkdir -p "$SERVER_DIR" "$CONFIG_DIR"
+SERVER_ADMIN_USERNAME="${SERVER_ADMIN_USERNAME:-admin}"
+SERVER_PASSWORD="${SERVER_PASSWORD:-}"
 
-if [[ ! -x "$DD" ]]; then
-    log "ERROR: DepotDownloader not found at $DD"
-    exit 1
-fi
+SERVER_DEBUG="${SERVER_DEBUG:-false}"
+NO_STEAM="${NO_STEAM:-false}"
 
-if ! command -v box64 >/dev/null 2>&1; then
-    log "ERROR: Box64 was not found"
-    exit 1
-fi
+WORKSHOP_IDS="${WORKSHOP_IDS:-}"
+MOD_IDS="${MOD_IDS:-}"
+JAVA_EXTRA_ARGS="${JAVA_EXTRA_ARGS:-}"
 
-if ! command -v jq >/dev/null 2>&1; then
-    log "ERROR: jq was not found"
+HOME="${HOME:-/home/pz}"
+
+SERVER_CONFIG_DIR="${CONFIG_DIR}/Server"
+SERVER_INI="${SERVER_CONFIG_DIR}/${SERVER_NAME}.ini"
+
+
+log() {
+    echo "[entrypoint] $*"
+}
+
+
+fail() {
+    echo "[entrypoint] ERROR: $*" >&2
     exit 1
-fi
+}
+
+
+cleanup() {
+    local exit_code=$?
+
+    if [[ $exit_code -ne 0 ]]; then
+        log "Entrypoint exiting with status ${exit_code}"
+    fi
+
+    exit "$exit_code"
+}
+
+
+trap cleanup EXIT
+
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+}
+
 
 install_server() {
-    local args=(
-        -app 380870
-        -os linux
-        -osarch 64
-        -dir "$SERVER_DIR"
-        -validate
+    local depot_args=(
+        "-app"
+        "380870"
+        "-dir"
+        "$SERVER_DIR"
+        "-branch"
+        "$SERVER_BRANCH"
     )
 
-    if [[ -n "$BRANCH" && "${BRANCH,,}" != "public" ]]; then
-        args+=(
-            -branch "$BRANCH"
+    log "Installing/updating Project Zomboid dedicated server"
+    log "AppID: 380870"
+    log "Install directory: ${SERVER_DIR}"
+    log "Branch: ${SERVER_BRANCH}"
+
+    if [[ -n "${STEAM_USERNAME:-}" ]]; then
+        depot_args+=(
+            "-username"
+            "$STEAM_USERNAME"
+        )
+
+        if [[ -n "${STEAM_PASSWORD:-}" ]]; then
+            depot_args+=(
+                "-password"
+                "$STEAM_PASSWORD"
+            )
+        fi
+    fi
+
+    if [[ -n "${STEAM_BRANCH_PASSWORD:-}" ]]; then
+        depot_args+=(
+            "-branchpassword"
+            "$STEAM_BRANCH_PASSWORD"
         )
     fi
 
-    log "Installing/updating Project Zomboid AppID 380870 (branch: ${BRANCH})"
-
-    "$DD" "${args[@]}"
-
-    if [[ -f "$SERVER_DIR/ProjectZomboid64" ]]; then
-        chmod 0755 "$SERVER_DIR/ProjectZomboid64"
+    if [[ -n "${STEAM_CMDLINE_ARGS:-}" ]]; then
+        # shellcheck disable=SC2206
+        depot_args+=( ${STEAM_CMDLINE_ARGS} )
     fi
 
-    if [[ -f "$SERVER_DIR/start-server.sh" ]]; then
-        chmod 0755 "$SERVER_DIR/start-server.sh"
-    fi
-
-    if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then
-        chmod 0755 "$SERVER_DIR/jre64/bin/java"
-    fi
-
-    if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then
-        chmod 0755 "$SERVER_DIR/jre64/lib/jspawnhelper"
-    fi
+    "$DEPOTDOWNLOADER_DIR/DepotDownloader" "${depot_args[@]}"
 
     if [[ ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
-        log "ERROR: ProjectZomboid64 was not installed"
-        exit 1
+        fail "Project Zomboid server executable was not found at ${SERVER_DIR}/ProjectZomboid64"
+    fi
+
+    log "Project Zomboid server installation/update completed"
+}
+
+
+configure_steam_compatibility() {
+    # Project Zomboid's Steam networking code expects libsteam.so.
+    # The official Linux server distribution provides steamclient.so.
+    #
+    # Under Box64, provide libsteam.so as a symlink to steamclient.so
+    # so the Steam networking libraries can resolve correctly.
+
+    if [[ -f "$SERVER_DIR/linux64/steamclient.so" ]]; then
+        ln -sfn "steamclient.so" "$SERVER_DIR/linux64/libsteam.so"
+        log "Configured linux64/libsteam.so -> steamclient.so"
+    else
+        log "WARNING: ${SERVER_DIR}/linux64/steamclient.so not found"
+    fi
+
+    # Also provide the compatibility link at the server root.
+    if [[ -f "$SERVER_DIR/steamclient.so" ]]; then
+        ln -sfn "steamclient.so" "$SERVER_DIR/libsteam.so"
+        log "Configured libsteam.so -> steamclient.so"
     fi
 }
 
-if [[ "${UPDATE_ON_START,,}" == "true" ||
-    ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
-    install_server
-else
-    log "UPDATE_ON_START=false and server files already exist; skipping update"
-fi
 
-mkdir -p \
-    "$CONFIG_DIR/Server" \
-    "$CONFIG_DIR/Saves"
+configure_java() {
+    local java_bin="${SERVER_DIR}/jre64/bin/java"
+    local jspawnhelper="${SERVER_DIR}/jre64/lib/jspawnhelper"
+    local java_output
 
-SERVER_INI="$CONFIG_DIR/Server/${SERVER_NAME}.ini"
+    if [[ ! -x "$java_bin" ]]; then
+        fail "Bundled Java runtime not found at ${java_bin}"
+    fi
 
-FIRST_BOOT=false
+    if [[ -f "$jspawnhelper" ]]; then
+        chmod +x "$jspawnhelper" || true
+    fi
 
-if [[ ! -f "$SERVER_INI" ]]; then
-    FIRST_BOOT=true
-fi
+    log "Java runtime: ${java_bin}"
 
-touch "$SERVER_INI"
+    # The /usr/local/bin/java wrapper launches the bundled x86_64
+    # Java runtime through Box64. Execute it here so the CI smoke test
+    # verifies that Box64 and the bundled JRE actually work.
+    if java_output="$(java -version 2>&1)"; then
+        log "Java runtime successfully started through Box64"
+        while IFS= read -r line; do
+            log "Java: ${line}"
+        done <<< "$java_output"
+    else
+        log "Java/Box64 startup failed"
+        log "$java_output"
+        fail "Unable to start bundled Java runtime through Box64"
+    fi
+}
 
-#
-# Safely update a Project Zomboid INI setting.
-#
-# PZ-generated INI files can contain CRLF line endings and, depending
-# on how the file was initially generated, may not have a final newline.
-# Using awk here guarantees every resulting setting is newline-delimited.
-#
+
 set_ini() {
     local key="$1"
     local value="$2"
@@ -119,8 +185,6 @@ set_ini() {
 
         {
             line = $0
-
-            # Normalize CRLF to LF.
             sub(/\r$/, "", line)
 
             if (line ~ "^" key "=") {
@@ -141,264 +205,185 @@ set_ini() {
     mv "$tmp" "$SERVER_INI"
 }
 
-#
-# Server configuration
-#
 
-set_ini "Public" "${SERVER_PUBLIC:-false}"
+configure_server_ini() {
+    mkdir -p "$SERVER_CONFIG_DIR"
 
-if [[ -n "${SERVER_DISPLAY_NAME:-}" ]]; then
-    set_ini "PublicName" "${SERVER_DISPLAY_NAME}"
-fi
+    if [[ ! -f "$SERVER_INI" ]]; then
+        log "Creating server configuration: ${SERVER_INI}"
+        touch "$SERVER_INI"
+    fi
 
-if [[ -n "${SERVER_PASSWORD:-}" ]]; then
-    set_ini "Password" "${SERVER_PASSWORD}"
-fi
+    set_ini "DefaultPort" "$SERVER_PORT"
+    set_ini "UDPPort" "$SERVER_UDP_PORT"
+    set_ini "SteamPort1" "$STEAM_PORT_1"
+    set_ini "SteamPort2" "$STEAM_PORT_2"
+    set_ini "RCONPort" "$RCON_PORT"
 
-if [[ -n "${RCON_PASSWORD:-}" ]]; then
-    set_ini "RCONPassword" "${RCON_PASSWORD}"
-fi
+    set_ini "Public" "$SERVER_PUBLIC"
 
-set_ini "RCONPort" "$RCON_PORT"
-set_ini "UDPPort" "$UDP_PORT"
-set_ini "SteamPort1" "$STEAM_PORT_1"
-set_ini "SteamPort2" "$STEAM_PORT_2"
+    if [[ -n "$SERVER_PASSWORD" ]]; then
+        set_ini "Password" "$SERVER_PASSWORD"
+    fi
 
-if [[ -n "${WORKSHOP_IDS:-}" ]]; then
-    set_ini "WorkshopItems" "${WORKSHOP_IDS}"
-fi
+    if [[ -n "$WORKSHOP_IDS" ]]; then
+        set_ini "WorkshopItems" "$WORKSHOP_IDS"
+    fi
 
-if [[ -n "${MOD_IDS:-}" ]]; then
-    set_ini "Mods" "${MOD_IDS}"
-fi
+    if [[ -n "$MOD_IDS" ]]; then
+        set_ini "Mods" "$MOD_IDS"
+    fi
 
-#
-# Box64 / Java environment
-#
+    if [[ -n "$SERVER_ADMIN_USERNAME" ]]; then
+        set_ini "AdminUsername" "$SERVER_ADMIN_USERNAME"
+    fi
 
-export PATH="/usr/local/bin:/usr/bin:/bin"
+    log "Configured server INI: ${SERVER_INI}"
 
-export BOX64_PATH="$SERVER_DIR/jre64/bin:/usr/local/bin:/usr/bin:/bin"
+    log "Relevant server settings:"
 
-export BOX64_LD_LIBRARY_PATH="$SERVER_DIR/linux64:$SERVER_DIR/natives:$SERVER_DIR/jre64/lib:$SERVER_DIR/jre64/lib/server${BOX64_LD_LIBRARY_PATH:+:$BOX64_LD_LIBRARY_PATH}"
+    grep -E \
+        '^(DefaultPort|UDPPort|SteamPort1|SteamPort2|RCONPort|Public|Password|WorkshopItems|Mods|AdminUsername)=' \
+        "$SERVER_INI" || true
+}
 
-export LD_LIBRARY_PATH="$SERVER_DIR/linux64:$SERVER_DIR/natives:$SERVER_DIR/jre64/lib:$SERVER_DIR/jre64/lib/server${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-JAVA_BIN="$SERVER_DIR/jre64/bin/java"
+configure_jvm() {
+    local jvm_file="${SERVER_DIR}/ProjectZomboid64.json"
+    local tmp
 
-if [[ ! -x "$JAVA_BIN" ]]; then
-    log "ERROR: bundled 64-bit Java runtime not found at $JAVA_BIN"
-    exit 1
-fi
+    if [[ ! -f "$jvm_file" ]]; then
+        log "No ProjectZomboid64.json found; using server defaults"
+        return
+    fi
 
-if ! command -v java >/dev/null 2>&1; then
-    log "ERROR: Java wrapper was not found in PATH"
-    exit 1
-fi
-
-#
-# JVM memory configuration
-#
-
-if [[ -n "${MEMORY_XMS:-}" ]]; then
-    XMS="$MEMORY_XMS"
-else
-    XMS="$MEMORY"
-fi
-
-if [[ -n "${MEMORY_XMX:-}" ]]; then
-    XMX="$MEMORY_XMX"
-else
-    XMX="$MEMORY"
-fi
-
-#
-# Update ProjectZomboid64.json JVM arguments.
-#
-
-JSON_FILE="$SERVER_DIR/ProjectZomboid64.json"
-
-if [[ -f "$JSON_FILE" ]]; then
-    TMP_JSON="${JSON_FILE}.tmp"
+    tmp="$(mktemp "${jvm_file}.XXXXXX")"
 
     jq \
-        --arg xms "$XMS" \
-        --arg xmx "$XMX" \
-        --arg extra "${JAVA_EXTRA_ARGS:-}" \
+        --arg xms "$MEMORY_XMS" \
+        --arg xmx "$MEMORY_XMX" \
         '
-        .vmArgs =
-            (
-                (.vmArgs // [])
-                |
-                if type == "string"
-                then split(" ")
-                else .
+        if ($xms | length) > 0 then
+            map(
+                if startswith("-Xms") then
+                    "-Xms" + $xms
+                else
+                    .
                 end
-                |
-                map(select(length > 0))
-                |
-                map(
-                    select(
-                        (
-                            startswith("-Xms")
-                            or startswith("-Xmx")
-                            or startswith("-XX:")
-                        ) | not
-                    )
-                )
-                +
-                [
-                    "-Xms" + $xms,
-                    "-Xmx" + $xmx,
-                    "-XX:+UseSerialGC",
-                    "-XX:-TieredCompilation",
-                    "-XX:CICompilerCount=1",
-                    "-XX:-UseCompressedOops",
-                    "-XX:-UseCompressedClassPointers"
-                ]
-                +
-                (
-                    if ($extra | length) > 0
-                    then
-                        $extra
-                        | split(" ")
-                        | map(select(length > 0))
-                    else
-                        []
-                    end
-                )
             )
+        else
+            map(select(startswith("-Xms") | not))
+        end
         |
-        .initialHeap = $xms
+        if ($xmx | length) > 0 then
+            map(
+                if startswith("-Xmx") then
+                    "-Xmx" + $xmx
+                else
+                    .
+                end
+            )
+        else
+            map(select(startswith("-Xmx") | not))
+        end
         |
-        .maxHeap = $xmx
-        ' "$JSON_FILE" > "$TMP_JSON"
+        map(select(startswith("-XX:") | not))
+        ' \
+        "$jvm_file" > "$tmp"
 
-    if ! jq empty "$TMP_JSON" >/dev/null 2>&1; then
-        rm -f "$TMP_JSON"
-        log "ERROR: Generated invalid JSON in $JSON_FILE"
-        exit 1
-    fi
-
-    mv "$TMP_JSON" "$JSON_FILE"
-fi
-
-#
-# Diagnostics
-#
-
-log "Java wrapper: $(command -v java)"
-log "Bundled Java: $JAVA_BIN"
-
-log "Testing bundled x86_64 Java through Box64..."
-
-if ! java -version 2>&1; then
-    log "ERROR: Bundled Java failed to start through Box64"
-    exit 1
-fi
-
-log "Java runtime successfully started through Box64"
-
-#
-# Verify the critical INI settings before starting the server.
-#
-
-log "Project Zomboid configuration:"
-log "  Server name: ${SERVER_NAME}"
-log "  Game port: ${SERVER_PORT}"
-log "  UDP port: ${UDP_PORT}"
-log "  Steam port 1: ${STEAM_PORT_1}"
-log "  Steam port 2: ${STEAM_PORT_2}"
-log "  RCON port: ${RCON_PORT}"
-log "  Memory: ${XMS} - ${XMX}"
-
-if grep -nE '^ChatMessageSlowModeTime=|^SteamPort1=|^SteamPort2=' "$SERVER_INI" >/dev/null 2>&1; then
-    log "Relevant server INI settings:"
-    grep -nE '^ChatMessageSlowModeTime=|^SteamPort1=|^SteamPort2=' "$SERVER_INI" || true
-fi
-
-cd "$SERVER_DIR"
-
-ARGS=(
-    "-cachedir=${CONFIG_DIR}"
-    "-servername" "$SERVER_NAME"
-    "-port" "$SERVER_PORT"
-)
-
-if [[ -n "${ADMIN_USERNAME:-}" ]]; then
-    ARGS+=(
-        "-adminusername" "$ADMIN_USERNAME"
-    )
-fi
-
-if [[ "$FIRST_BOOT" == "true" && -n "${ADMIN_PASSWORD:-}" ]]; then
-    ARGS+=(
-        "-adminpassword" "$ADMIN_PASSWORD"
-    )
-fi
-
-if [[ "${DEBUG:-false}" == "true" ]]; then
-    ARGS+=(
-        "-debug"
-    )
-fi
-
-if [[ "${NOSTEAM:-false}" == "true" ]]; then
-    ARGS+=(
-        "-nosteam"
-    )
-fi
-
-BOX64_VERSION="$(box64 --version 2>&1 || true)"
-
-log "Starting Project Zomboid ${SERVER_NAME}"
-log "Game UDP: ${SERVER_PORT}/${UDP_PORT}"
-log "Steam UDP: ${STEAM_PORT_1}/${STEAM_PORT_2}"
-log "RCON TCP: ${RCON_PORT}"
-log "Box64: ${BOX64_VERSION}"
-
-#
-# Use a FIFO so SIGTERM can gracefully tell Project Zomboid to save and quit.
-#
-
-CONSOLE_FIFO="/tmp/pz-console"
-
-rm -f "$CONSOLE_FIFO"
-mkfifo "$CONSOLE_FIFO"
-
-exec {CONSOLE_FD}<>"$CONSOLE_FIFO"
-
-SERVER_PID=""
-
-cleanup() {
-    rm -f "$CONSOLE_FIFO"
+    mv "$tmp" "$jvm_file"
 }
 
-shutdown() {
-    log "Shutdown requested; asking Project Zomboid to save and quit"
 
-    printf 'save\nquit\n' >&"${CONSOLE_FD}" || true
+configure_environment() {
+    export PZ_SERVER_DIR="$SERVER_DIR"
+    export PZ_CONFIG_DIR="$CONFIG_DIR"
 
-    if [[ -n "${SERVER_PID:-}" ]]; then
-        for _ in {1..60}; do
-            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-                return 0
-            fi
+    export BOX64_PATH="${SERVER_DIR}/linux64:${SERVER_DIR}"
+    export BOX64_LD_LIBRARY_PATH="${SERVER_DIR}/linux64:${SERVER_DIR}"
+    export LD_LIBRARY_PATH="${SERVER_DIR}/linux64:${SERVER_DIR}:${LD_LIBRARY_PATH:-}"
 
-            sleep 1
-        done
+    export PATH="/usr/local/bin:/usr/bin:/bin:${SERVER_DIR}:${SERVER_DIR}/linux64"
 
-        log "Server did not exit after graceful shutdown; sending SIGTERM"
-
-        kill -TERM "$SERVER_PID" 2>/dev/null || true
-    fi
+    log "BOX64_LOG=${BOX64_LOG:-0}"
+    log "BOX64_PATH=${BOX64_PATH}"
+    log "BOX64_LD_LIBRARY_PATH=${BOX64_LD_LIBRARY_PATH}"
+    log "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
 }
 
-trap shutdown TERM INT
-trap cleanup EXIT
 
-box64 "$SERVER_DIR/ProjectZomboid64" "${ARGS[@]}" <"$CONSOLE_FIFO" &
+start_server() {
+    local server_args=()
 
-SERVER_PID=$!
+    if [[ -n "$JAVA_EXTRA_ARGS" ]]; then
+        # shellcheck disable=SC2206
+        server_args+=( ${JAVA_EXTRA_ARGS} )
+    fi
 
-wait "$SERVER_PID"
+    if [[ "${SERVER_DEBUG,,}" == "true" ]]; then
+        server_args+=(
+            "-debug"
+        )
+    fi
+
+    if [[ "${NO_STEAM,,}" == "true" ]]; then
+        server_args+=(
+            "-nosteam"
+        )
+    fi
+
+    log "Starting Project Zomboid server"
+    log "Server name: ${SERVER_NAME}"
+    log "Server port: ${SERVER_PORT}"
+    log "UDP port: ${SERVER_UDP_PORT}"
+    log "Steam ports: ${STEAM_PORT_1}, ${STEAM_PORT_2}"
+    log "RCON port: ${RCON_PORT}"
+    log "Memory: ${MEMORY}"
+
+    cd "$SERVER_DIR"
+
+    exec "$SERVER_DIR/start-server.sh" \
+        -servername "$SERVER_NAME" \
+        -cachedir="$CONFIG_DIR" \
+        -memory "$MEMORY" \
+        "${server_args[@]}"
+}
+
+
+main() {
+    log "Project Zomboid ARM64 container starting"
+    log "Server directory: ${SERVER_DIR}"
+    log "Config directory: ${CONFIG_DIR}"
+
+    # Do not check for java here.
+    # The bundled Java runtime is downloaded as part of the
+    # Project Zomboid server installation.
+    require_command curl
+    require_command jq
+
+    configure_environment
+
+    if [[ "${UPDATE_ON_START,,}" == "true" || ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
+        install_server
+    else
+        log "UPDATE_ON_START=false and server files already exist; skipping update"
+    fi
+
+    # These must happen after DepotDownloader has populated /opt/zomboid.
+    configure_steam_compatibility
+    configure_java
+    configure_server_ini
+    configure_jvm
+
+    # Ensure jspawnhelper remains executable when using the bundled JRE.
+    if [[ -f "${SERVER_DIR}/jre64/lib/jspawnhelper" ]]; then
+        chmod +x "${SERVER_DIR}/jre64/lib/jspawnhelper" || true
+    fi
+
+    log "Project Zomboid configuration complete"
+
+    start_server
+}
+
+
+main "$@"

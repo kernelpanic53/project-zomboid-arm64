@@ -28,7 +28,10 @@ RUN curl --fail --location --show-error --silent --retry 3 \
         --output box64.tar.gz \
     && echo "${BOX64_SHA256}  box64.tar.gz" | sha256sum --check --strict \
     && mkdir source build \
-    && tar --extract --gzip --file box64.tar.gz --strip-components=1 --directory source \
+    && tar --extract --gzip \
+        --file box64.tar.gz \
+        --strip-components=1 \
+        --directory source \
     && cmake \
         -S source \
         -B build \
@@ -38,11 +41,15 @@ RUN curl --fail --location --show-error --silent --retry 3 \
         -DNOGIT=1 \
     && cmake --build build --parallel "$(nproc)" \
     && DESTDIR=/box64-root cmake --install build \
-    && install -D -m 0644 source/LICENSE /box64-root/usr/share/licenses/box64/LICENSE
+    && install -D -m 0644 \
+        source/LICENSE \
+        /box64-root/usr/share/licenses/box64/LICENSE
 
 # -----------------------------------------------------------------------------
-# Native ARM64 DepotDownloader. It downloads the official Linux x86_64 PZ
-# dedicated-server depot without requiring x86 SteamCMD in the ARM64 image.
+# Native ARM64 DepotDownloader.
+#
+# It downloads the official Linux x86_64 Project Zomboid dedicated-server
+# depot without requiring x86 SteamCMD in the ARM64 image.
 # -----------------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS depotdownloader
 
@@ -117,22 +124,61 @@ RUN apt-get update \
         jq \
         libatomic1 \
         libgcc-s1 \
+        libice6 \
+        libsm6 \
         libstdc++6 \
+        libx11-6 \
+        libxext6 \
         netcat-openbsd \
         tini \
         zlib1g \
     && groupadd --gid "${PGID}" pz \
-    && useradd --uid "${PUID}" --gid "${PGID}" --create-home --home-dir /home/pz --shell /bin/bash pz \
-    && mkdir -p /opt/zomboid /config /home/pz /tmp/pz \
-    && chown -R pz:pz /opt/zomboid /config /home/pz /tmp/pz \
+    && useradd \
+        --uid "${PUID}" \
+        --gid "${PGID}" \
+        --create-home \
+        --home-dir /home/pz \
+        --shell /bin/bash \
+        pz \
+    && mkdir -p \
+        /opt/zomboid \
+        /config \
+        /home/pz \
+        /tmp/pz \
+    && chown -R pz:pz \
+        /opt/zomboid \
+        /config \
+        /home/pz \
+        /tmp/pz \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=box64-builder /box64-root/ /
 COPY --from=depotdownloader /depot-root/ /
+
 COPY --chmod=0755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
 
+# Project Zomboid's pzexe launcher expects to execute "java" by name.
+# The bundled Java runtime is x86_64, so route the command through Box64.
+RUN cat > /usr/local/bin/java <<'EOF'
+#!/bin/sh
+set -eu
+
+SERVER_DIR="${PZ_SERVER_DIR:-/opt/zomboid}"
+JAVA_BIN="${SERVER_DIR}/jre64/bin/java"
+
+if [ ! -x "$JAVA_BIN" ]; then
+    echo "ERROR: bundled Java runtime not found at $JAVA_BIN" >&2
+    exit 1
+fi
+
+exec /usr/local/bin/box64 "$JAVA_BIN" "$@"
+EOF
+
+RUN chmod 0755 /usr/local/bin/java
+
 USER pz:pz
+
 WORKDIR /opt/zomboid
 
 VOLUME ["/opt/zomboid", "/config"]

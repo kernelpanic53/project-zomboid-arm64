@@ -82,7 +82,9 @@ install_server() {
     fi
 }
 
-if [[ "${UPDATE_ON_START:-true,,}" == "true" || ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
+UPDATE_ON_START="${UPDATE_ON_START:-true}"
+
+if [[ "${UPDATE_ON_START,,}" == "true" || ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
     install_server
 else
     log "UPDATE_ON_START=false and server files already exist; skipping update"
@@ -220,10 +222,11 @@ if [[ -f "$JSON_FILE" ]]; then
                 map(select(length > 0))
                 |
                 map(select(
-                    (startswith("-Xms"))
-                    or (startswith("-Xmx"))
-                    or (startswith("-XX:"))
-                    | not
+                    (
+                        startswith("-Xms")
+                        or startswith("-Xmx")
+                        or startswith("-XX:")
+                    ) | not
                 ))
                 +
                 [

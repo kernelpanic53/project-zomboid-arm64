@@ -4,18 +4,28 @@ metadata:
   name: {{ include "pz.fullname" . }}
   labels:
     {{- include "pz.labels" . | nindent 4 }}
+  {{- with .Values.podAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   serviceName: {{ include "pz.fullname" . }}-headless
   replicas: 1
+
   updateStrategy:
-    type: {{ .Values.updateStrategy.type }}
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+
   selector:
     matchLabels:
       {{- include "pz.selectorLabels" . | nindent 6 }}
+
   template:
     metadata:
       labels:
         {{- include "pz.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -23,183 +33,207 @@ spec:
         {{- if not .Values.secret.existingName }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- end }}
+
     spec:
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
-      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- range . }}
-        - name: {{ if kindIs "string" . }}{{ . }}{{ else }}{{ .name }}{{ end }}
-        {{- end }}
+
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
       {{- end }}
-      {{- with .Values.podSecurityContext }}
-      securityContext:
-        {{- toYaml . | nindent 8 }}
+
+      {{- with .Values.runtimeClassName }}
+      runtimeClassName: {{ . | quote }}
       {{- end }}
+
+      {{- with .Values.schedulerName }}
+      schedulerName: {{ . | quote }}
+      {{- end }}
+
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
       {{- with .Values.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.priorityClassName }}
-      priorityClassName: {{ . }}
-      {{- end }}
-      {{- with .Values.runtimeClassName }}
-      runtimeClassName: {{ . }}
-      {{- end }}
-      {{- with .Values.schedulerName }}
-      schedulerName: {{ . }}
-      {{- end }}
+
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
       containers:
         - name: project-zomboid
           image: {{ include "pz.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+
           env:
             - name: SERVER_NAME
               value: {{ .Values.server.name | quote }}
+
             - name: SERVER_DISPLAY_NAME
               value: {{ .Values.server.displayName | quote }}
+
             - name: SERVER_BRANCH
               value: {{ .Values.server.branch | quote }}
+
             - name: SERVER_PUBLIC
               value: {{ .Values.server.public | quote }}
+
             - name: SERVER_PORT
               value: {{ .Values.server.port | quote }}
+
             - name: SERVER_UDP_PORT
               value: {{ .Values.server.udpPort | quote }}
+
             - name: STEAM_PORT_1
               value: {{ .Values.server.steamPort1 | quote }}
+
             - name: STEAM_PORT_2
               value: {{ .Values.server.steamPort2 | quote }}
+
             - name: RCON_PORT
               value: {{ .Values.server.rconPort | quote }}
+
             - name: MEMORY
               value: {{ .Values.server.memory | quote }}
-            - name: MEMORY_XMS
-              value: {{ .Values.server.memoryXms | quote }}
-            - name: MEMORY_XMX
-              value: {{ .Values.server.memoryXmx | quote }}
+
             - name: UPDATE_ON_START
               value: {{ .Values.server.updateOnStart | quote }}
+
             - name: ADMIN_USERNAME
               value: {{ .Values.server.adminUsername | quote }}
+
             - name: DEBUG
               value: {{ .Values.server.debug | quote }}
+
             - name: NOSTEAM
               value: {{ .Values.server.noSteam | quote }}
+
             - name: WORKSHOP_IDS
               value: {{ .Values.server.workshopIds | quote }}
+
             - name: MOD_IDS
               value: {{ .Values.server.modIds | quote }}
+
             - name: JAVA_EXTRA_ARGS
               value: {{ .Values.server.javaExtraArgs | quote }}
+
+            {{- if .Values.server.memoryXms }}
+            - name: MEMORY_XMS
+              value: {{ .Values.server.memoryXms | quote }}
+            {{- end }}
+
+            {{- if .Values.server.memoryXmx }}
+            - name: MEMORY_XMX
+              value: {{ .Values.server.memoryXmx | quote }}
+            {{- end }}
+
             - name: ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.adminPassword }}
+
             - name: SERVER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.serverPassword }}
+
             - name: RCON_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.rconPassword }}
+
           ports:
             - name: game
               containerPort: {{ .Values.server.port }}
               protocol: UDP
+
             - name: game2
               containerPort: {{ .Values.server.udpPort }}
               protocol: UDP
+
             - name: steam1
               containerPort: {{ .Values.server.steamPort1 }}
               protocol: UDP
+
             - name: steam2
               containerPort: {{ .Values.server.steamPort2 }}
               protocol: UDP
+
             - name: rcon
               containerPort: {{ .Values.server.rconPort }}
               protocol: TCP
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-          {{- if .Values.startupProbe.enabled }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
           startupProbe:
+            {{- if .Values.startupProbe.enabled }}
             exec:
               command:
                 - /usr/local/bin/healthcheck.sh
             failureThreshold: {{ .Values.startupProbe.failureThreshold }}
             periodSeconds: {{ .Values.startupProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
-          {{- end }}
-          {{- if .Values.readinessProbe.enabled }}
+            {{- end }}
+
           readinessProbe:
+            {{- if .Values.readinessProbe.enabled }}
             exec:
               command:
                 - /usr/local/bin/healthcheck.sh
             failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
             periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
-          {{- end }}
-          {{- if .Values.livenessProbe.enabled }}
+            {{- end }}
+
           livenessProbe:
+            {{- if .Values.livenessProbe.enabled }}
             exec:
               command:
                 - /usr/local/bin/healthcheck.sh
             failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
             periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
-          {{- end }}
+            {{- end }}
+
           volumeMounts:
-            - name: server
+            - name: server-data
               mountPath: /opt/zomboid
-            - name: config
+
+            - name: config-data
               mountPath: /config
+
             - name: tmp
               mountPath: /tmp
+
       volumes:
-        {{- if .Values.persistence.server.existingClaim }}
-        - name: server
-          persistentVolumeClaim:
-            claimName: {{ .Values.persistence.server.existingClaim }}
-        {{- else if not .Values.persistence.server.enabled }}
-        - name: server
-          emptyDir: {}
-        {{- end }}
-        {{- if .Values.persistence.config.existingClaim }}
-        - name: config
-          persistentVolumeClaim:
-            claimName: {{ .Values.persistence.config.existingClaim }}
-        {{- else if not .Values.persistence.config.enabled }}
-        - name: config
-          emptyDir: {}
-        {{- end }}
         - name: tmp
           emptyDir:
             {{- toYaml .Values.emptyDir.tmp | nindent 12 }}
-  {{- if or (and .Values.persistence.server.enabled (not .Values.persistence.server.existingClaim)) (and .Values.persistence.config.enabled (not .Values.persistence.config.existingClaim)) }}
+
   volumeClaimTemplates:
-    {{- if and .Values.persistence.server.enabled (not .Values.persistence.server.existingClaim) }}
     - metadata:
-        name: server
-        labels:
-          {{- include "pz.labels" . | nindent 10 }}
+        name: server-data
         {{- with .Values.persistence.server.annotations }}
         annotations:
           {{- toYaml . | nindent 10 }}
@@ -207,12 +241,8 @@ spec:
       spec:
         accessModes:
           {{- toYaml .Values.persistence.server.accessModes | nindent 10 }}
-        {{- if eq .Values.persistence.server.storageClass "-" }}
-        storageClassName: ""
-        {{- else }}
-        {{- with .Values.persistence.server.storageClass }}
-        storageClassName: {{ . }}
-        {{- end }}
+        {{- if .Values.persistence.server.storageClass }}
+        storageClassName: {{ .Values.persistence.server.storageClass | quote }}
         {{- end }}
         {{- with .Values.persistence.server.selector }}
         selector:
@@ -220,13 +250,10 @@ spec:
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.persistence.server.size }}
-    {{- end }}
-    {{- if and .Values.persistence.config.enabled (not .Values.persistence.config.existingClaim) }}
+            storage: {{ .Values.persistence.server.size | quote }}
+
     - metadata:
-        name: config
-        labels:
-          {{- include "pz.labels" . | nindent 10 }}
+        name: config-data
         {{- with .Values.persistence.config.annotations }}
         annotations:
           {{- toYaml . | nindent 10 }}
@@ -234,12 +261,8 @@ spec:
       spec:
         accessModes:
           {{- toYaml .Values.persistence.config.accessModes | nindent 10 }}
-        {{- if eq .Values.persistence.config.storageClass "-" }}
-        storageClassName: ""
-        {{- else }}
-        {{- with .Values.persistence.config.storageClass }}
-        storageClassName: {{ . }}
-        {{- end }}
+        {{- if .Values.persistence.config.storageClass }}
+        storageClassName: {{ .Values.persistence.config.storageClass | quote }}
         {{- end }}
         {{- with .Values.persistence.config.selector }}
         selector:
@@ -247,6 +270,4 @@ spec:
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.persistence.config.size }}
-    {{- end }}
-  {{- end }}
+            storage: {{ .Values.persistence.config.size | quote }}

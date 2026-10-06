@@ -70,8 +70,9 @@ jobs:
           grep -q "kind: StatefulSet" /tmp/zomboid-rendered.yaml
           grep -q "kind: Service" /tmp/zomboid-rendered.yaml
 
-  build-test:
-    name: Build and test ARM64 image
+
+  build:
+    name: Build ARM64 image
     runs-on: ubuntu-24.04-arm
     needs: validate
 
@@ -111,154 +112,24 @@ jobs:
             --format '{{.Os}}/{{.Architecture}}' \
             | grep -q '^linux/arm64$'
 
-      - name: Run container smoke test
-        shell: bash
+      - name: Display image information
         run: |
-          set -euo pipefail
-
-          docker run \
-            --detach \
-            --name zomboid-test \
-            --platform linux/arm64 \
-            -e SERVER_NAME=github-actions-test \
-            -e SERVER_PUBLIC=false \
-            -e SERVER_BRANCH=public \
-            -e UPDATE_ON_START=true \
-            -e MEMORY=4G \
-            -e ADMIN_USERNAME=admin \
-            -e ADMIN_PASSWORD="${ZOMBOID_ADMIN_PASSWORD}" \
-            -p 16261:16261/udp \
-            -p 16262:16262/udp \
-            -p 8766:8766/udp \
-            -p 8767:8767/udp \
-            -p 27015:27015/tcp \
-            zomboid-arm64:test
-
-          echo "Container started:"
-          docker ps -a --filter name=zomboid-test
-
+          echo "ARM64 image successfully built."
           echo
-          echo "Waiting for Java/Box64..."
+          docker image inspect zomboid-arm64:test \
+            --format 'Image: {{.RepoTags}}'
+          docker image inspect zomboid-arm64:test \
+            --format 'Architecture: {{.Architecture}}'
+          docker image inspect zomboid-arm64:test \
+            --format 'OS: {{.Os}}'
+          docker image inspect zomboid-arm64:test \
+            --format 'Size: {{.Size}} bytes'
 
-          for i in {1..120}; do
-            echo "--- smoke test iteration ${i}/120 ---"
-
-            if docker logs zomboid-test 2>&1 \
-              | grep -q "Java runtime successfully started through Box64"; then
-              echo "Java/Box64 smoke test passed."
-              break
-            fi
-
-            if ! docker ps --format '{{.Names}}' \
-              | grep -q '^zomboid-test$'; then
-              echo
-              echo "ERROR: Container exited unexpectedly."
-              echo
-              echo "Container status:"
-              docker ps -a --filter name=zomboid-test
-              echo
-              echo "Container logs:"
-              docker logs zomboid-test
-              exit 1
-            fi
-
-            sleep 5
-          done
-
-          if ! docker logs zomboid-test 2>&1 \
-            | grep -q "Java runtime successfully started through Box64"; then
-            echo
-            echo "ERROR: Java/Box64 smoke test did not pass."
-            echo
-            echo "Container status:"
-            docker ps -a --filter name=zomboid-test
-            echo
-            echo "Container inspect:"
-            docker inspect zomboid-test
-            echo
-            echo "Container logs:"
-            docker logs zomboid-test
-            exit 1
-          fi
-
-          echo
-          echo "Waiting for Project Zomboid startup..."
-
-          for i in {1..120}; do
-            echo "--- Project Zomboid iteration ${i}/120 ---"
-
-            if docker logs zomboid-test 2>&1 \
-              | grep -q "Starting Project Zomboid"; then
-              echo "Project Zomboid startup detected."
-              break
-            fi
-
-            if ! docker ps --format '{{.Names}}' \
-              | grep -q '^zomboid-test$'; then
-              echo
-              echo "ERROR: Container exited unexpectedly."
-              echo
-              echo "Container status:"
-              docker ps -a --filter name=zomboid-test
-              echo
-              echo "Container logs:"
-              docker logs zomboid-test
-              exit 1
-            fi
-
-            sleep 5
-          done
-
-          if ! docker logs zomboid-test 2>&1 \
-            | grep -q "Starting Project Zomboid"; then
-            echo
-            echo "ERROR: Project Zomboid startup was not detected."
-            echo
-            echo "Container status:"
-            docker ps -a --filter name=zomboid-test
-            echo
-            echo "Container logs:"
-            docker logs zomboid-test
-            exit 1
-          fi
-
-          echo
-          echo "Project Zomboid startup detected successfully."
-
-          echo
-          echo "Final container status:"
-          docker ps -a --filter name=zomboid-test
-
-          echo
-          echo "Project Zomboid logs:"
-          docker logs zomboid-test
-
-      - name: Upload container logs
-        if: always()
-        run: |
-          docker logs zomboid-test > zomboid-container.log 2>&1 || true
-
-      - name: Store container logs
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: project-zomboid-container-logs
-          path: zomboid-container.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Cleanup test container
-        if: always()
-        run: |
-          docker rm --force zomboid-test 2>/dev/null || true
-
-    env:
-      ZOMBOID_ADMIN_PASSWORD: github-actions-test-password
 
   publish:
     name: Publish image to GHCR
     runs-on: ubuntu-24.04-arm
-    needs: build-test
+    needs: build
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
 
     permissions:

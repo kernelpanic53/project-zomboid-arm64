@@ -1,0 +1,258 @@
+name: Build and Test Project Zomboid ARM64
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kernelpanic53/project-zomboid-arm64
+
+jobs:
+  validate:
+    name: Validate source
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Check shell syntax
+        run: |
+          bash -n scripts/entrypoint.sh
+          bash -n scripts/healthcheck.sh
+
+      - name: ShellCheck
+        run: |
+          shellcheck scripts/entrypoint.sh
+          shellcheck scripts/healthcheck.sh
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Helm lint
+        run: |
+          helm lint charts/project-zomboid-arm64
+
+      - name: Helm template
+        run: |
+          helm template zomboid \
+            charts/project-zomboid-arm64 \
+            --namespace zomboid \
+            > /tmp/zomboid-rendered.yaml
+
+      - name: Validate rendered Kubernetes YAML
+        run: |
+          test -s /tmp/zomboid-rendered.yaml
+          grep -q "kind: StatefulSet" /tmp/zomboid-rendered.yaml
+          grep -q "kind: Service" /tmp/zomboid-rendered.yaml
+
+  build-test:
+    name: Build and test ARM64 image
+    runs-on: ubuntu-24.04-arm
+    needs: validate
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+
+      - name: Build ARM64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: |
+            zomboid-arm64:test
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image architecture
+        run: |
+          docker image inspect zomboid-arm64:test \
+            --format '{{.Os}}/{{.Architecture}}' \
+            | grep -q '^linux/arm64$'
+
+      - name: Run container smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run \
+            --detach \
+            --name zomboid-test \
+            --platform linux/arm64 \
+            -e SERVER_NAME=github-actions-test \
+            -e SERVER_PUBLIC=false \
+            -e SERVER_BRANCH=public \
+            -e UPDATE_ON_START=true \
+            -e MEMORY=4G \
+            -e ADMIN_USERNAME=admin \
+            -e ADMIN_PASSWORD="${ZOMBOID_ADMIN_PASSWORD}" \
+            -p 16261:16261/udp \
+            -p 16262:16262/udp \
+            -p 8766:8766/udp \
+            -p 8767:8767/udp \
+            -p 27015:27015/tcp \
+            zomboid-arm64:test
+
+          echo "Waiting for Project Zomboid to initialize..."
+
+          for i in {1..120}; do
+            if docker logs zomboid-test 2>&1 \
+              | grep -q "Java runtime successfully started through Box64"; then
+              echo "Java/Box64 smoke test passed."
+              break
+            fi
+
+            if ! docker ps --format '{{.Names}}' \
+              | grep -q '^zomboid-test$'; then
+              echo "Container exited unexpectedly."
+              docker logs zomboid-test
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+          if ! docker logs zomboid-test 2>&1 \
+            | grep -q "Java runtime successfully started through Box64"; then
+            echo "ERROR: Java/Box64 smoke test did not pass."
+            docker logs zomboid-test
+            exit 1
+          fi
+
+          echo "Waiting for Project Zomboid server startup..."
+
+          for i in {1..120}; do
+            if docker logs zomboid-test 2>&1 \
+              | grep -Eq "Starting Project Zomboid|Server is listening|Server started"; then
+              echo "Project Zomboid startup detected."
+              break
+            fi
+
+            if ! docker ps --format '{{.Names}}' \
+              | grep -q '^zomboid-test$'; then
+              echo "Container exited unexpectedly."
+              docker logs zomboid-test
+              exit 1
+            fi
+
+            sleep 5
+          done
+
+          echo "Final container status:"
+          docker ps -a --filter name=zomboid-test
+
+          echo "Project Zomboid logs:"
+          docker logs zomboid-test
+
+      - name: Upload container logs
+        if: always()
+        run: |
+          docker logs zomboid-test > zomboid-container.log 2>&1 || true
+
+      - name: Store container logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: project-zomboid-container-logs
+          path: zomboid-container.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup test container
+        if: always()
+        run: |
+          docker rm --force zomboid-test 2>/dev/null || true
+
+    env:
+      ZOMBOID_ADMIN_PASSWORD: github-actions-test-password
+
+  publish:
+    name: Publish image to GHCR
+    runs-on: ubuntu-24.04-arm
+    needs: build-test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push ARM64 image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate image attestation
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

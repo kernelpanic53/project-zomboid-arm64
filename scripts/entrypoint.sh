@@ -156,10 +156,10 @@ configure_java() {
     log "Java runtime: ${java_bin}"
 
     # The /usr/local/bin/java wrapper launches the bundled x86_64
-    # Java runtime through Box64. Execute it here so the CI smoke test
-    # verifies that Box64 and the bundled JRE actually work.
+    # Java runtime through Box64.
     if java_output="$(java -version 2>&1)"; then
         log "Java runtime successfully started through Box64"
+
         while IFS= read -r line; do
             log "Java: ${line}"
         done <<< "$java_output"
@@ -265,33 +265,56 @@ configure_jvm() {
         '
         if ($xms | length) > 0 then
             map(
-                if startswith("-Xms") then
+                if (
+                    type == "string"
+                    and startswith("-Xms")
+                ) then
                     "-Xms" + $xms
                 else
                     .
                 end
             )
         else
-            map(select(startswith("-Xms") | not))
+            map(
+                select(
+                    type != "string"
+                    or (startswith("-Xms") | not)
+                )
+            )
         end
         |
         if ($xmx | length) > 0 then
             map(
-                if startswith("-Xmx") then
+                if (
+                    type == "string"
+                    and startswith("-Xmx")
+                ) then
                     "-Xmx" + $xmx
                 else
                     .
                 end
             )
         else
-            map(select(startswith("-Xmx") | not))
+            map(
+                select(
+                    type != "string"
+                    or (startswith("-Xmx") | not)
+                )
+            )
         end
         |
-        map(select(startswith("-XX:") | not))
+        map(
+            select(
+                type != "string"
+                or (startswith("-XX:") | not)
+            )
+        )
         ' \
         "$jvm_file" > "$tmp"
 
     mv "$tmp" "$jvm_file"
+
+    log "Configured JVM options in ${jvm_file}"
 }
 
 

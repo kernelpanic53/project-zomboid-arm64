@@ -33,6 +33,11 @@ server:
   workshopIds: ""
   modIds: ""
   javaExtraArgs: ""
+  jvmExtraArgs: ""
+  # Box64 cannot always translate the JVM's JIT-generated machine code,
+  # causing SIGILL crashes. Options: interpreter (-Xint, most stable),
+  # c1 (-XX:TieredStopAtLevel=1), or default (JVM-managed, fastest).
+  jitMode: interpreter
 
 secret:
   # Prefer creating this Secret outside Helm so passwords do not end up in Helm history.

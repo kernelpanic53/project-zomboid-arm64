@@ -335,8 +335,49 @@ configure_environment() {
 }
 
 
+# Derive the Java classpath the stock ProjectZomboid64 (pzexe) launcher
+# would use, by reading ProjectZomboid64.json.
+#
+# We deliberately avoid calling start-server.sh / ProjectZomboid64 here.
+# On aarch64 those stock launchers run the native "pzexe" bootstrap, which
+# loads libpzexe_jni64.so and performs its own x86_64 arch/JNI detection.
+# Under Box64 that detection fails and aborts with "Only 64bit is
+# supported" before the game server ever starts. Invoking the bundled
+# x86_64 Java directly through the Box64 wrapper bypasses pzexe entirely
+# while launching the exact same zombie.network.GameServer main class.
+#
+# The stock ProjectZomboid64.json stores each JVM option as a full string
+# entry, e.g. "-Djava.class.path=java/.:java/projectzomboid.jar". We parse
+# that entry to recover the server classpath.
+build_classpath() {
+    local json_file="${SERVER_DIR}/ProjectZomboid64.json"
+    local cp=""
+
+    if [[ -f "$json_file" ]]; then
+        cp="$(jq -r '
+            [ .[]?
+              | select(type == "string")
+              | select(startswith("-Djava.class.path="))
+              | sub("^-Djava.class.path="; "")
+            ] | first // empty
+        ' "$json_file" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$cp" ]]; then
+        # Verified Build 42 dedicated-server classpath fallback.
+        cp="java/.:java/projectzomboid.jar"
+    fi
+
+    printf '%s' "$cp"
+}
+
+
 start_server() {
     local server_args=()
+    local jvm_mem_args=()
+    local classpath
+    local xmx="${MEMORY_XMX:-$MEMORY}"
+    local xms="${MEMORY_XMS:-$MEMORY}"
 
     if [[ -n "$JAVA_EXTRA_ARGS" ]]; then
         # shellcheck disable=SC2206
@@ -355,20 +396,51 @@ start_server() {
         )
     fi
 
+    classpath="$(build_classpath)"
+
+    # Steam networking under Box64 is unreliable; disable it unless the
+    # operator explicitly opts in. GameServer accepts -nosteam.
+    if [[ "${NO_STEAM,,}" != "true" ]]; then
+        local steam_flag="1"
+    else
+        local steam_flag="0"
+    fi
+
+    jvm_mem_args=(
+        "-Xms${xms}"
+        "-Xmx${xmx}"
+    )
+
     log "Starting Project Zomboid server"
     log "Server name: ${SERVER_NAME}"
     log "Server port: ${SERVER_PORT}"
     log "UDP port: ${SERVER_UDP_PORT}"
     log "Steam ports: ${STEAM_PORT_1}, ${STEAM_PORT_2}"
     log "RCON port: ${RCON_PORT}"
-    log "Memory: ${MEMORY}"
+    log "Memory (Xms/Xmx): ${xms}/${xmx}"
+    log "Classpath: ${classpath}"
 
     cd "$SERVER_DIR"
 
-    exec "$SERVER_DIR/start-server.sh" \
+    # Launch the bundled x86_64 Java runtime directly through the Box64
+    # wrapper (/usr/local/bin/java), replicating the stock
+    # ProjectZomboid64.json vmArgs for the Build 42 dedicated server but
+    # without the pzexe native launcher and its aarch64 arch guard.
+    #
+    # The library path must point at the server's linux64 and natives
+    # directories so the x86_64 native libraries resolve under Box64.
+    exec java \
+        "${jvm_mem_args[@]}" \
+        -Djava.awt.headless=true \
+        "-Dzomboid.steam=${steam_flag}" \
+        -Dzomboid.znetlog=1 \
+        -Djava.security.egd=file:/dev/urandom \
+        -XX:-OmitStackTraceInFastThrow \
+        -Djava.library.path="${SERVER_DIR}/linux64:${SERVER_DIR}/natives:${SERVER_DIR}" \
+        -cp "$classpath" \
+        zombie.network.GameServer \
         -servername "$SERVER_NAME" \
         -cachedir="$CONFIG_DIR" \
-        -memory "$MEMORY" \
         "${server_args[@]}"
 }
 

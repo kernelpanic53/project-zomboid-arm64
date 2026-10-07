@@ -112,8 +112,26 @@ install_server() {
 
     "$DEPOTDOWNLOADER_DIR/DepotDownloader" "${depot_args[@]}"
 
-    if [[ ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
-        fail "Project Zomboid server executable was not found at ${SERVER_DIR}/ProjectZomboid64"
+    # DepotDownloader writes depot files without the execute bit. We launch
+    # the bundled JRE directly (bypassing the pzexe ProjectZomboid64
+    # launcher), so the executables we actually need are the Java runtime
+    # binaries. Restore the execute bit on them.
+    if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then
+        chmod +x "$SERVER_DIR/jre64/bin/java" || true
+    fi
+
+    if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then
+        chmod +x "$SERVER_DIR/jre64/lib/jspawnhelper" || true
+    fi
+
+    # Validate the real launch artifacts rather than the (unused, and
+    # non-executable after download) ProjectZomboid64 pzexe launcher.
+    if [[ ! -x "$SERVER_DIR/jre64/bin/java" ]]; then
+        fail "Bundled Java runtime not found/executable at ${SERVER_DIR}/jre64/bin/java"
+    fi
+
+    if [[ ! -f "$SERVER_DIR/java/projectzomboid.jar" ]]; then
+        fail "Project Zomboid server jar not found at ${SERVER_DIR}/java/projectzomboid.jar"
     fi
 
     log "Project Zomboid server installation/update completed"
@@ -476,7 +494,10 @@ main() {
 
     configure_environment
 
-    if [[ "${UPDATE_ON_START,,}" == "true" || ! -x "$SERVER_DIR/ProjectZomboid64" ]]; then
+    # Use the game jar as the "already installed" marker. ProjectZomboid64
+    # is the unused pzexe launcher and is non-executable after download, so
+    # it is not a reliable presence check.
+    if [[ "${UPDATE_ON_START,,}" == "true" || ! -f "$SERVER_DIR/java/projectzomboid.jar" ]]; then
         install_server
     else
         log "UPDATE_ON_START=false and server files already exist; skipping update"

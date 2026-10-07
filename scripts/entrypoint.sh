@@ -22,7 +22,9 @@ MEMORY_XMX="${MEMORY_XMX:-}"
 UPDATE_ON_START="${UPDATE_ON_START:-true}"
 
 SERVER_ADMIN_USERNAME="${SERVER_ADMIN_USERNAME:-admin}"
+SERVER_ADMIN_PASSWORD="${SERVER_ADMIN_PASSWORD:-}"
 SERVER_PASSWORD="${SERVER_PASSWORD:-}"
+SERVER_RCON_PASSWORD="${SERVER_RCON_PASSWORD:-}"
 
 SERVER_DEBUG="${SERVER_DEBUG:-false}"
 NO_STEAM="${NO_STEAM:-false}"
@@ -226,6 +228,11 @@ configure_server_ini() {
         set_ini "Password" "$SERVER_PASSWORD"
     fi
 
+    # RCON is disabled by the server unless RCONPassword is set.
+    if [[ -n "$SERVER_RCON_PASSWORD" ]]; then
+        set_ini "RCONPassword" "$SERVER_RCON_PASSWORD"
+    fi
+
     if [[ -n "$WORKSHOP_IDS" ]]; then
         set_ini "WorkshopItems" "$WORKSHOP_IDS"
     fi
@@ -242,8 +249,10 @@ configure_server_ini() {
 
     log "Relevant server settings:"
 
+    # Deliberately exclude Password / RCONPassword from the log to avoid
+    # leaking secrets into container logs.
     grep -E \
-        '^(DefaultPort|UDPPort|SteamPort1|SteamPort2|RCONPort|Public|Password|WorkshopItems|Mods|AdminUsername)=' \
+        '^(DefaultPort|UDPPort|SteamPort1|SteamPort2|RCONPort|Public|WorkshopItems|Mods|AdminUsername)=' \
         "$SERVER_INI" || true
 }
 
@@ -393,6 +402,15 @@ start_server() {
     if [[ "${NO_STEAM,,}" == "true" ]]; then
         server_args+=(
             "-nosteam"
+        )
+    fi
+
+    # The built-in admin account is created/reset when the server process
+    # is given -adminpassword on startup. There is no INI key for it.
+    if [[ -n "$SERVER_ADMIN_PASSWORD" ]]; then
+        server_args+=(
+            "-adminpassword"
+            "$SERVER_ADMIN_PASSWORD"
         )
     fi
 

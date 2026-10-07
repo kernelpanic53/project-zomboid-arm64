@@ -113,13 +113,13 @@ spec:
             - name: UPDATE_ON_START
               value: {{ .Values.server.updateOnStart | quote }}
 
-            - name: ADMIN_USERNAME
+            - name: SERVER_ADMIN_USERNAME
               value: {{ .Values.server.adminUsername | quote }}
 
-            - name: DEBUG
+            - name: SERVER_DEBUG
               value: {{ .Values.server.debug | quote }}
 
-            - name: NOSTEAM
+            - name: NO_STEAM
               value: {{ .Values.server.noSteam | quote }}
 
             - name: WORKSHOP_IDS
@@ -141,7 +141,7 @@ spec:
               value: {{ .Values.server.memoryXmx | quote }}
             {{- end }}
 
-            - name: ADMIN_PASSWORD
+            - name: SERVER_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
@@ -153,7 +153,7 @@ spec:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.serverPassword }}
 
-            - name: RCON_PASSWORD
+            - name: SERVER_RCON_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}

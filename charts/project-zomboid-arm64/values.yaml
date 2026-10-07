@@ -25,7 +25,11 @@ server:
   updateOnStart: true
   adminUsername: admin
   debug: false
-  noSteam: false
+  # Steam networking is unreliable under Box64 on arm64 and a private
+  # server that cannot reach Steam's master servers will crash on startup.
+  # Default to non-Steam (direct-connect) networking. Set to false only if
+  # Steam networking is confirmed working in your environment.
+  noSteam: true
   workshopIds: ""
   modIds: ""
   javaExtraArgs: ""

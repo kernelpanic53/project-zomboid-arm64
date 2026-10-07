@@ -465,6 +465,15 @@ start_server() {
     #
     # The library path must point at the server's linux64 and natives
     # directories so the x86_64 native libraries resolve under Box64.
+    # PZ resolves its user-data folder (<user.home>/Zomboid) from the
+    # user.home system property. The stock StartServer64 launcher sets
+    # -Duser.home explicitly. Without it, ZomboidFileSystem.init() resolves
+    # a null base path and crashes with a NullPointerException in
+    # URI.quote (getRelativeFile). Point it at the container's HOME.
+    #
+    # -Duser.timezone=UTC avoids the bundled JRE needing to resolve a
+    # system timezone name, which can fail under Box64 while reading the
+    # JRE's tzdb.dat.
     exec java \
         "${jvm_mem_args[@]}" \
         -Djava.awt.headless=true \
@@ -472,6 +481,9 @@ start_server() {
         -Dzomboid.znetlog=1 \
         -Djava.security.egd=file:/dev/urandom \
         -XX:-OmitStackTraceInFastThrow \
+        -Duser.home="${HOME}" \
+        -Duser.timezone=UTC \
+        -Ddeployment.user.cachedir="${CONFIG_DIR}" \
         -Djava.library.path="${SERVER_DIR}/linux64:${SERVER_DIR}/natives:${SERVER_DIR}" \
         -cp "$classpath" \
         zombie.network.GameServer \

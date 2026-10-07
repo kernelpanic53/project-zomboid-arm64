@@ -31,7 +31,19 @@ NO_STEAM="${NO_STEAM:-false}"
 
 WORKSHOP_IDS="${WORKSHOP_IDS:-}"
 MOD_IDS="${MOD_IDS:-}"
+# JAVA_EXTRA_ARGS are passed to the game (after the main class).
+# JVM_EXTRA_ARGS are passed to the JVM (before the main class).
 JAVA_EXTRA_ARGS="${JAVA_EXTRA_ARGS:-}"
+JVM_EXTRA_ARGS="${JVM_EXTRA_ARGS:-}"
+
+# The x86_64 JVM's JIT generates machine code at runtime that Box64's
+# dynarec cannot always translate, causing SIGILL crashes (commonly in
+# java.lang.invoke / MethodHandle compiled frames). JAVA_JIT_MODE controls
+# the mitigation:
+#   interpreter - force -Xint (no JIT; most stable, slowest)
+#   c1          - JIT with C1 only, no C2 (-XX:TieredStopAtLevel=1)
+#   default     - let the JVM decide (fastest, may SIGILL under Box64)
+JAVA_JIT_MODE="${JAVA_JIT_MODE:-interpreter}"
 
 HOME="${HOME:-/home/pz}"
 
@@ -447,6 +459,28 @@ start_server() {
         "-Xmx${xmx}"
     )
 
+    # Box64 JIT-crash mitigation (see JAVA_JIT_MODE above).
+    local jit_args=()
+    case "${JAVA_JIT_MODE,,}" in
+        interpreter)
+            jit_args+=( "-Xint" )
+            log "JIT mode: interpreter (-Xint)"
+            ;;
+        c1)
+            jit_args+=( "-XX:TieredStopAtLevel=1" )
+            log "JIT mode: C1 only (-XX:TieredStopAtLevel=1)"
+            ;;
+        default|*)
+            log "JIT mode: default (JVM-managed)"
+            ;;
+    esac
+
+    local extra_jvm_args=()
+    if [[ -n "$JVM_EXTRA_ARGS" ]]; then
+        # shellcheck disable=SC2206
+        extra_jvm_args+=( ${JVM_EXTRA_ARGS} )
+    fi
+
     log "Starting Project Zomboid server"
     log "Server name: ${SERVER_NAME}"
     log "Server port: ${SERVER_PORT}"
@@ -476,6 +510,8 @@ start_server() {
     # JRE's tzdb.dat.
     exec java \
         "${jvm_mem_args[@]}" \
+        "${jit_args[@]}" \
+        "${extra_jvm_args[@]}" \
         -Djava.awt.headless=true \
         "-Dzomboid.steam=${steam_flag}" \
         -Dzomboid.znetlog=1 \

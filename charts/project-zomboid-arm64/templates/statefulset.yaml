@@ -131,6 +131,12 @@ spec:
             - name: JAVA_EXTRA_ARGS
               value: {{ .Values.server.javaExtraArgs | quote }}
 
+            - name: JVM_EXTRA_ARGS
+              value: {{ .Values.server.jvmExtraArgs | quote }}
+
+            - name: JAVA_JIT_MODE
+              value: {{ .Values.server.jitMode | quote }}
+
             {{- if .Values.server.memoryXms }}
             - name: MEMORY_XMS
               value: {{ .Values.server.memoryXms | quote }}

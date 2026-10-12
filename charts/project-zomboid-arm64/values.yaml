@@ -4,14 +4,14 @@ commonLabels: {}
 
 image:
   repository: ghcr.io/kernelpanic53/project-zomboid-arm64
-  tag: latest
+  tag: experimental-fex
   digest: ""
   pullPolicy: Always
 imagePullSecrets: []
 
 server:
   name: servertest
-  displayName: "Project Zomboid ARM64"
+  displayName: "Project Zomboid ARM64 (experimental FEX)"
   branch: public
   public: false
   port: 16261
@@ -25,22 +25,23 @@ server:
   updateOnStart: true
   adminUsername: admin
   debug: false
-  # Steam networking is unreliable under Box64 on arm64 and a private
-  # server that cannot reach Steam's master servers will crash on startup.
-  # Default to non-Steam (direct-connect) networking. Set to false only if
-  # Steam networking is confirmed working in your environment.
   noSteam: true
   workshopIds: ""
   modIds: ""
   javaExtraArgs: ""
   jvmExtraArgs: ""
-  # Box64 cannot always translate the JVM's JIT-generated machine code,
-  # causing SIGILL crashes. Options: interpreter (-Xint, most stable),
-  # c1 (-XX:TieredStopAtLevel=1), or default (JVM-managed, fastest).
-  jitMode: interpreter
+  # FEX's interpreter mode is the safer experimental default for current PZ
+  # Build 42/JVM 25 reports, but can be extremely slow. Options: interpreter,
+  # c1, default. Test C1/default on your workload before exposing the server.
+  fexJitMode: interpreter
+
+fex:
+  # Current FEX/PZ reports indicate that disabling multiblock may help with
+  # some JIT failures, but does not guarantee Build 42 stability.
+  multiblock: "0"
 
 secret:
-  # Prefer creating this Secret outside Helm so passwords do not end up in Helm history.
+  # Prefer creating this Secret outside Helm so passwords are not stored in Helm history.
   existingName: ""
   adminPassword: ""
   serverPassword: ""
@@ -134,6 +135,7 @@ terminationGracePeriodSeconds: 120
 updateStrategy:
   type: RollingUpdate
 
+# Generic ARM64 scheduling; no host-specific nodeSelector.
 nodeSelector:
   kubernetes.io/arch: arm64
 tolerations: []

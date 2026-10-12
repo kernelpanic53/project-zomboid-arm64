@@ -11,14 +11,11 @@ metadata:
 spec:
   serviceName: {{ include "pz.fullname" . }}-headless
   replicas: 1
-
   updateStrategy:
     {{- toYaml .Values.updateStrategy | nindent 4 }}
-
   selector:
     matchLabels:
       {{- include "pz.selectorLabels" . | nindent 6 }}
-
   template:
     metadata:
       labels:
@@ -33,210 +30,159 @@ spec:
         {{- if not .Values.secret.existingName }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- end }}
-
     spec:
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
-
       {{- with .Values.priorityClassName }}
       priorityClassName: {{ . | quote }}
       {{- end }}
-
       {{- with .Values.runtimeClassName }}
       runtimeClassName: {{ . | quote }}
       {{- end }}
-
       {{- with .Values.schedulerName }}
       schedulerName: {{ . | quote }}
       {{- end }}
-
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
       {{- with .Values.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-
       containers:
         - name: project-zomboid
           image: {{ include "pz.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-
           env:
             - name: SERVER_NAME
               value: {{ .Values.server.name | quote }}
-
             - name: SERVER_DISPLAY_NAME
               value: {{ .Values.server.displayName | quote }}
-
             - name: SERVER_BRANCH
               value: {{ .Values.server.branch | quote }}
-
             - name: SERVER_PUBLIC
               value: {{ .Values.server.public | quote }}
-
             - name: SERVER_PORT
               value: {{ .Values.server.port | quote }}
-
             - name: SERVER_UDP_PORT
               value: {{ .Values.server.udpPort | quote }}
-
             - name: STEAM_PORT_1
               value: {{ .Values.server.steamPort1 | quote }}
-
             - name: STEAM_PORT_2
               value: {{ .Values.server.steamPort2 | quote }}
-
             - name: RCON_PORT
               value: {{ .Values.server.rconPort | quote }}
-
             - name: MEMORY
               value: {{ .Values.server.memory | quote }}
-
             - name: UPDATE_ON_START
               value: {{ .Values.server.updateOnStart | quote }}
-
             - name: SERVER_ADMIN_USERNAME
               value: {{ .Values.server.adminUsername | quote }}
-
             - name: SERVER_DEBUG
               value: {{ .Values.server.debug | quote }}
-
             - name: NO_STEAM
               value: {{ .Values.server.noSteam | quote }}
-
             - name: WORKSHOP_IDS
               value: {{ .Values.server.workshopIds | quote }}
-
             - name: MOD_IDS
               value: {{ .Values.server.modIds | quote }}
-
             - name: JAVA_EXTRA_ARGS
               value: {{ .Values.server.javaExtraArgs | quote }}
-
             - name: JVM_EXTRA_ARGS
               value: {{ .Values.server.jvmExtraArgs | quote }}
-
-            - name: JAVA_JIT_MODE
-              value: {{ .Values.server.jitMode | quote }}
-
+            - name: FEX_JIT_MODE
+              value: {{ .Values.server.fexJitMode | quote }}
+            - name: FEX_MULTIBLOCK
+              value: {{ .Values.fex.multiblock | quote }}
             {{- if .Values.server.memoryXms }}
             - name: MEMORY_XMS
               value: {{ .Values.server.memoryXms | quote }}
             {{- end }}
-
             {{- if .Values.server.memoryXmx }}
             - name: MEMORY_XMX
               value: {{ .Values.server.memoryXmx | quote }}
             {{- end }}
-
             - name: SERVER_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.adminPassword }}
-
             - name: SERVER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.serverPassword }}
-
             - name: SERVER_RCON_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "pz.secretName" . }}
                   key: {{ .Values.secret.keys.rconPassword }}
-
           ports:
             - name: game
               containerPort: {{ .Values.server.port }}
               protocol: UDP
-
             - name: game2
               containerPort: {{ .Values.server.udpPort }}
               protocol: UDP
-
             - name: steam1
               containerPort: {{ .Values.server.steamPort1 }}
               protocol: UDP
-
             - name: steam2
               containerPort: {{ .Values.server.steamPort2 }}
               protocol: UDP
-
             - name: rcon
               containerPort: {{ .Values.server.rconPort }}
               protocol: TCP
-
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-
+          {{- if .Values.startupProbe.enabled }}
           startupProbe:
-            {{- if .Values.startupProbe.enabled }}
             exec:
-              command:
-                - /usr/local/bin/healthcheck.sh
+              command: ["/usr/local/bin/healthcheck.sh"]
             failureThreshold: {{ .Values.startupProbe.failureThreshold }}
             periodSeconds: {{ .Values.startupProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
-            {{- end }}
-
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
           readinessProbe:
-            {{- if .Values.readinessProbe.enabled }}
             exec:
-              command:
-                - /usr/local/bin/healthcheck.sh
+              command: ["/usr/local/bin/healthcheck.sh"]
             failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
             periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
-            {{- end }}
-
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
-            {{- if .Values.livenessProbe.enabled }}
             exec:
-              command:
-                - /usr/local/bin/healthcheck.sh
+              command: ["/usr/local/bin/healthcheck.sh"]
             failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
             periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
-            {{- end }}
-
+          {{- end }}
           volumeMounts:
             - name: server-data
               mountPath: /opt/zomboid
-
             - name: config-data
               mountPath: /config
-
             - name: tmp
               mountPath: /tmp
-
       volumes:
         - name: tmp
           emptyDir:
             {{- toYaml .Values.emptyDir.tmp | nindent 12 }}
-
   volumeClaimTemplates:
     - metadata:
         name: server-data
@@ -257,7 +203,6 @@ spec:
         resources:
           requests:
             storage: {{ .Values.persistence.server.size | quote }}
-
     - metadata:
         name: config-data
         {{- with .Values.persistence.config.annotations }}

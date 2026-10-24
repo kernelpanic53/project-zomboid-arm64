@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 SERVER_DIR="${PZ_SERVER_DIR:-/opt/zomboid}"
 CONFIG_DIR="${PZ_CONFIG_DIR:-/config}"
+SERVER_PID_FILE="${CONFIG_DIR}/.pz-server.pid"
 DEPOTDOWNLOADER_DIR="${DEPOTDOWNLOADER_DIR:-/opt/depotdownloader}"
 
 SERVER_NAME="${SERVER_NAME:-servertest}"
@@ -508,6 +509,7 @@ start_server() {
     # -Duser.timezone=UTC avoids the bundled JRE needing to resolve a
     # system timezone name, which can fail under Box64 while reading the
     # JRE's tzdb.dat.
+    printf '%s\n' "$$" > "$SERVER_PID_FILE"
     exec java \
         "${jvm_mem_args[@]}" \
         "${jit_args[@]}" \
@@ -533,6 +535,7 @@ main() {
     log "Project Zomboid ARM64 container starting"
     log "Server directory: ${SERVER_DIR}"
     log "Config directory: ${CONFIG_DIR}"
+    rm -f "$SERVER_PID_FILE"
 
     # Do not check for java here.
     # The bundled Java runtime is downloaded as part of the

@@ -137,6 +137,7 @@ RUN apt-get update \
         libx11-6 \
         libxext6 \
         netcat-openbsd \
+        procps \
         tini \
         zlib1g \
     && /usr/local/bin/security-updates.sh \

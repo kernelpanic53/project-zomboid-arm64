@@ -14,6 +14,10 @@ helm upgrade --install zomboid . \
   --set secret.existingName=zomboid-secret
 ```
 
+The pod runs as a non-root user with capabilities dropped, seccomp enabled, and a
+read-only root filesystem. `/opt/zomboid` and `/config` use persistent claims;
+`/home/pz` and `/tmp` use disposable writable volumes.
+
 ## MetalLB
 
 The Service is `LoadBalancer` by default. It exposes:

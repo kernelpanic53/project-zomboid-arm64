@@ -229,10 +229,16 @@ spec:
             - name: config-data
               mountPath: /config
 
+            - name: home
+              mountPath: /home/pz
+
             - name: tmp
               mountPath: /tmp
 
       volumes:
+        - name: home
+          emptyDir: {}
+
         - name: tmp
           emptyDir:
             {{- toYaml .Values.emptyDir.tmp | nindent 12 }}

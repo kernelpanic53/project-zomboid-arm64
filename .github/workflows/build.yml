@@ -9,10 +9,16 @@ on:
   pull_request:
     branches:
       - main
+  schedule:
+    - cron: "17 6 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
@@ -24,8 +30,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install validation tools
         run: |
@@ -36,16 +41,15 @@ jobs:
         run: |
           bash -n scripts/entrypoint.sh
           bash -n scripts/healthcheck.sh
+          bash -n scripts/security-updates.sh
 
       - name: ShellCheck
-        run: |
-          shellcheck scripts/entrypoint.sh
-          shellcheck scripts/healthcheck.sh
+        run: shellcheck scripts/entrypoint.sh scripts/healthcheck.sh scripts/security-updates.sh
 
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
         with:
-          version: latest
+          version: v3.17.3
 
       - name: Helm lint
         run: |
@@ -63,74 +67,16 @@ jobs:
             --set-string secret.serverPassword=github-actions-test-password \
             --set-string secret.rconPassword=github-actions-test-password \
             > /tmp/zomboid-rendered.yaml
-
-      - name: Validate rendered Kubernetes YAML
-        run: |
           test -s /tmp/zomboid-rendered.yaml
           grep -q "kind: StatefulSet" /tmp/zomboid-rendered.yaml
           grep -q "kind: Service" /tmp/zomboid-rendered.yaml
-
+          grep -q "readOnlyRootFilesystem: true" /tmp/zomboid-rendered.yaml
 
   build:
-    name: Build ARM64 image
+    name: Build, scan, and publish ARM64 image
     runs-on: ubuntu-24.04-arm
     needs: validate
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,prefix=sha-,format=short
-
-      - name: Build ARM64 image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/arm64
-          load: true
-          tags: |
-            zomboid-arm64:test
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Verify image architecture
-        run: |
-          docker image inspect zomboid-arm64:test \
-            --format '{{.Os}}/{{.Architecture}}' \
-            | grep -q '^linux/arm64$'
-
-      - name: Display image information
-        run: |
-          echo "ARM64 image successfully built."
-          echo
-          docker image inspect zomboid-arm64:test \
-            --format 'Image: {{.RepoTags}}'
-          docker image inspect zomboid-arm64:test \
-            --format 'Architecture: {{.Architecture}}'
-          docker image inspect zomboid-arm64:test \
-            --format 'OS: {{.Os}}'
-          docker image inspect zomboid-arm64:test \
-            --format 'Size: {{.Size}} bytes'
-
-
-  publish:
-    name: Publish image to GHCR
-    runs-on: ubuntu-24.04-arm
-    needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    timeout-minutes: 90
 
     permissions:
       contents: read
@@ -139,45 +85,102 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build ARM64 image with fresh Debian packages
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          pull: true
+          no-cache-filters: runtime
+          load: true
+          tags: zomboid-arm64:ci
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Verify image architecture
+        run: |
+          docker image inspect zomboid-arm64:ci \
+            --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/arm64'
+
+      - name: Export image for scanning
+        run: docker save zomboid-arm64:ci -o image.tar
+
+      - name: Scan operating system and bundled libraries
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          input: image.tar
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: json
+          output: trivy-report.json
+          exit-code: "0"
+          timeout: 15m
+
+      - name: Keep vulnerability report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: vulnerability-report-${{ github.run_id }}
+          path: trivy-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Block fixable Debian High/Critical findings
+        run: python3 scripts/check-vulnerabilities.py trivy-report.json
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=tag
-            type=sha,prefix=sha-,format=short
-
-      - name: Build and push ARM64 image
-        id: push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Publish the scanned image
+        id: publish
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tags=()
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            docker tag zomboid-arm64:ci "$tag"
+            tags+=("$tag")
+          done <<< "$IMAGE_TAGS"
+          ((${#tags[@]} > 0))
+          docker push "${tags[0]}"
+          for tag in "${tags[@]:1}"; do docker push "$tag"; done
+          digest="sha256:$(docker buildx imagetools inspect --raw "${tags[0]}" | sha256sum | cut -d' ' -f1)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published digest: $digest" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate image attestation
-        uses: actions/attest@v4
+        if: steps.publish.outcome == 'success'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true

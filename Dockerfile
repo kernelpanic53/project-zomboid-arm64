@@ -6,6 +6,7 @@ ARG DEBIAN_IMAGE=arm64v8/debian:trixie-slim
 # Box64: ARM64 userspace emulator for the x86_64 Project Zomboid server/JRE.
 # -----------------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS box64-builder
+ARG TARGETARCH
 
 ARG BOX64_VERSION=0.4.4
 ARG BOX64_SHA256=99c6de4f509e46ab1de15df740d0e0ea338a7790efa3f67510dfbb975cc24029
@@ -13,6 +14,7 @@ ARG BOX64_SHA256=99c6de4f509e46ab1de15df740d0e0ea338a7790efa3f67510dfbb975cc2402
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
+    && test "${TARGETARCH:-$(dpkg --print-architecture)}" = arm64 \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
@@ -52,6 +54,7 @@ RUN curl --fail --location --show-error --silent --retry 3 \
 # depot without requiring x86 SteamCMD in the ARM64 image.
 # -----------------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS depotdownloader
+ARG TARGETARCH
 
 ARG DEPOTDOWNLOADER_VERSION=3.4.0
 ARG DEPOTDOWNLOADER_SHA256=d9fb612ccebc1db8eeea3b4045d2221ec70431381393ce908fb72f01d4f9c812
@@ -59,6 +62,7 @@ ARG DEPOTDOWNLOADER_SHA256=d9fb612ccebc1db8eeea3b4045d2221ec70431381393ce908fb72
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
+    && test "${TARGETARCH:-$(dpkg --print-architecture)}" = arm64 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -78,10 +82,11 @@ RUN curl --fail --location --show-error --silent --retry 3 \
 # -----------------------------------------------------------------------------
 # Final ARM64 image.
 # -----------------------------------------------------------------------------
-FROM ${DEBIAN_IMAGE}
+FROM ${DEBIAN_IMAGE} AS runtime
 
 ARG PUID=1000
 ARG PGID=1000
+ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="Project Zomboid dedicated server for ARM64" \
       org.opencontainers.image.description="Project Zomboid Build 42 dedicated server for ARM64 Kubernetes using native DepotDownloader and Box64" \
@@ -117,7 +122,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+COPY --chmod=0755 scripts/security-updates.sh /usr/local/bin/security-updates.sh
 RUN apt-get update \
+    && test "${TARGETARCH:-$(dpkg --print-architecture)}" = arm64 \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
@@ -132,6 +139,7 @@ RUN apt-get update \
         netcat-openbsd \
         tini \
         zlib1g \
+    && /usr/local/bin/security-updates.sh \
     && groupadd --gid "${PGID}" pz \
     && useradd \
         --uid "${PUID}" \

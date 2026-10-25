@@ -80,6 +80,33 @@ RUN curl --fail --location --show-error --silent --retry 3 \
     && chmod 0755 /depot-root/opt/depotdownloader/DepotDownloader
 
 # -----------------------------------------------------------------------------
+# Optional x86_64 Zulu Java 25 patch runtime. It is downloaded as data during
+# the ARM64 build and executed through Box64 only when JAVA_RUNTIME=zulu.
+# -----------------------------------------------------------------------------
+FROM ${DEBIAN_IMAGE} AS zulu-jre
+ARG ZULU_JRE_VERSION=25.0.5
+ARG INCLUDE_ZULU_JRE_OVERRIDE=true
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl jq \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /java-root/opt/zulu-jre
+
+RUN if [[ "${INCLUDE_ZULU_JRE_OVERRIDE,,}" == "true" ]]; then \
+        metadata="$(curl --fail --location --show-error --silent --retry 3 \
+            "https://api.azul.com/metadata/v1/zulu/packages/?java_version=${ZULU_JRE_VERSION}&os=linux&arch=x86&hw_bitness=64&ext=tar.gz&bundle_type=jre&release_status=ga&availability_types=CA")"; \
+        url="$(jq -er '.[0].download_url' <<< "$metadata")"; \
+        sha256="$(jq -er '.[0].sha256_hash' <<< "$metadata")"; \
+        curl --fail --location --show-error --silent --retry 3 "$url" --output /tmp/zulu-jre.tar.gz; \
+        echo "${sha256}  /tmp/zulu-jre.tar.gz" | sha256sum --check --strict; \
+        tar --extract --gzip --file /tmp/zulu-jre.tar.gz --strip-components=1 --directory /java-root/opt/zulu-jre; \
+        test -x /java-root/opt/zulu-jre/bin/java; \
+        rm -f /tmp/zulu-jre.tar.gz; \
+    fi
+
+# -----------------------------------------------------------------------------
 # Final ARM64 image.
 # -----------------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS runtime
@@ -106,9 +133,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     BOX64_DYNAREC_BLEEDING_EDGE=0 \
     BOX64_DYNAREC_BB_LOOP=1 \
     BOX64_DYNAREC_FORWARD=1 \
-    BOX64_DYNAREC_STRONGMEM=1 \
+    BOX64_DYNAREC_STRONGMEM=3 \
     BOX64_DYNAREC_SAFEFLAGS=2 \
-    BOX64_JVM=1 \
+    BOX64_DYNAREC_ALIGNED_ATOMICS=1 \
+    BOX64_JVM=0 \
+    BOX64_SSE42=0 \
+    BOX64_MAXCPU=4 \
+    JAVA_RUNTIME=bundled \
     SERVER_NAME=servertest \
     SERVER_PUBLIC=false \
     SERVER_PORT=16261 \
@@ -163,6 +194,7 @@ RUN apt-get update \
 
 COPY --from=box64-builder /box64-root/ /
 COPY --from=depotdownloader /depot-root/ /
+COPY --from=zulu-jre /java-root/ /
 
 COPY --chmod=0755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
@@ -174,10 +206,14 @@ RUN cat > /usr/local/bin/java <<'EOF'
 set -eu
 
 SERVER_DIR="${PZ_SERVER_DIR:-/opt/zomboid}"
-JAVA_BIN="${SERVER_DIR}/jre64/bin/java"
+if [ "${JAVA_RUNTIME:-bundled}" = "zulu" ]; then
+    JAVA_BIN="/opt/zulu-jre/bin/java"
+else
+    JAVA_BIN="${SERVER_DIR}/jre64/bin/java"
+fi
 
 if [ ! -x "$JAVA_BIN" ]; then
-    echo "ERROR: bundled Java runtime not found at $JAVA_BIN" >&2
+    echo "ERROR: selected Java runtime not found at $JAVA_BIN" >&2
     exit 1
 fi
 

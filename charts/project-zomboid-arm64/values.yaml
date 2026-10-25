@@ -34,10 +34,22 @@ server:
   modIds: ""
   javaExtraArgs: ""
   jvmExtraArgs: ""
+  # bundled uses the exact JRE downloaded with the PZ server. zulu selects the
+  # optional x86_64 Zulu Java 25 patch runtime included in this image.
+  javaRuntime: bundled
   # Box64 cannot always translate the JVM's JIT-generated machine code,
   # causing SIGILL crashes. Options: interpreter (-Xint, most stable),
   # c1 (-XX:TieredStopAtLevel=1), or default (JVM-managed, fastest).
   jitMode: interpreter
+  # Box64's Project Zomboid profile recommends these conservative settings.
+  # They can reduce dynarec performance; jitMode remains independently tunable.
+  box64:
+    dynarecStrongmem: 3
+    dynarecSafeflags: 2
+    dynarecAlignedAtomics: 1
+    jvm: false
+    sse42: 0
+    maxCpu: 4
 
 secret:
   # Prefer creating this Secret outside Helm so passwords do not end up in Helm history.

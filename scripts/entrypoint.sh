@@ -36,6 +36,7 @@ MOD_IDS="${MOD_IDS:-}"
 # JVM_EXTRA_ARGS are passed to the JVM (before the main class).
 JAVA_EXTRA_ARGS="${JAVA_EXTRA_ARGS:-}"
 JVM_EXTRA_ARGS="${JVM_EXTRA_ARGS:-}"
+JAVA_RUNTIME="${JAVA_RUNTIME:-bundled}"
 
 # The x86_64 JVM's JIT generates machine code at runtime that Box64's
 # dynarec cannot always translate, causing SIGILL crashes (commonly in
@@ -174,22 +175,35 @@ configure_steam_compatibility() {
 
 
 configure_java() {
-    local java_bin="${SERVER_DIR}/jre64/bin/java"
-    local jspawnhelper="${SERVER_DIR}/jre64/lib/jspawnhelper"
+    local java_bin
+    local jspawnhelper
     local java_output
 
+    case "${JAVA_RUNTIME,,}" in
+        bundled)
+            java_bin="${SERVER_DIR}/jre64/bin/java"
+            ;;
+        zulu)
+            java_bin="/opt/zulu-jre/bin/java"
+            ;;
+        *)
+            fail "JAVA_RUNTIME must be 'bundled' or 'zulu' (got '${JAVA_RUNTIME}')"
+            ;;
+    esac
+
     if [[ ! -x "$java_bin" ]]; then
-        fail "Bundled Java runtime not found at ${java_bin}"
+        fail "Selected Java runtime '${JAVA_RUNTIME}' not found or not executable at ${java_bin}; rebuild the image with INCLUDE_ZULU_JRE_OVERRIDE=true to enable zulu"
     fi
 
+    jspawnhelper="$(dirname "$(dirname "$java_bin")")/lib/jspawnhelper"
     if [[ -f "$jspawnhelper" ]]; then
         chmod +x "$jspawnhelper" || true
     fi
 
-    log "Java runtime: ${java_bin}"
+    log "Java runtime (${JAVA_RUNTIME}): ${java_bin}"
 
-    # The /usr/local/bin/java wrapper launches the bundled x86_64
-    # Java runtime through Box64.
+    # The /usr/local/bin/java wrapper launches the selected x86_64 runtime
+    # through Box64.
     if java_output="$(java -version 2>&1)"; then
         log "Java runtime successfully started through Box64"
 
@@ -199,7 +213,7 @@ configure_java() {
     else
         log "Java/Box64 startup failed"
         log "$java_output"
-        fail "Unable to start bundled Java runtime through Box64"
+        fail "Unable to start selected Java runtime through Box64"
     fi
 }
 
@@ -559,11 +573,6 @@ main() {
     configure_java
     configure_server_ini
     configure_jvm
-
-    # Ensure jspawnhelper remains executable when using the bundled JRE.
-    if [[ -f "${SERVER_DIR}/jre64/lib/jspawnhelper" ]]; then
-        chmod +x "${SERVER_DIR}/jre64/lib/jspawnhelper" || true
-    fi
 
     log "Project Zomboid configuration complete"
 

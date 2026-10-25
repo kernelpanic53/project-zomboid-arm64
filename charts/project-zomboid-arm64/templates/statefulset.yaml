@@ -137,6 +137,27 @@ spec:
             - name: JAVA_JIT_MODE
               value: {{ .Values.server.jitMode | quote }}
 
+            - name: JAVA_RUNTIME
+              value: {{ .Values.server.javaRuntime | quote }}
+
+            - name: BOX64_DYNAREC_STRONGMEM
+              value: {{ .Values.server.box64.dynarecStrongmem | quote }}
+
+            - name: BOX64_DYNAREC_SAFEFLAGS
+              value: {{ .Values.server.box64.dynarecSafeflags | quote }}
+
+            - name: BOX64_DYNAREC_ALIGNED_ATOMICS
+              value: {{ .Values.server.box64.dynarecAlignedAtomics | quote }}
+
+            - name: BOX64_JVM
+              value: {{ ternary "1" "0" .Values.server.box64.jvm | quote }}
+
+            - name: BOX64_SSE42
+              value: {{ .Values.server.box64.sse42 | quote }}
+
+            - name: BOX64_MAXCPU
+              value: {{ .Values.server.box64.maxCpu | quote }}
+
             {{- if .Values.server.memoryXms }}
             - name: MEMORY_XMS
               value: {{ .Values.server.memoryXms | quote }}

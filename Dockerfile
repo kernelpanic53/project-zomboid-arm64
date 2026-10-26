@@ -80,12 +80,11 @@ RUN curl --fail --location --show-error --silent --retry 3 \
     && chmod 0755 /depot-root/opt/depotdownloader/DepotDownloader
 
 # -----------------------------------------------------------------------------
-# Optional x86_64 Zulu Java 25 patch runtime. It is downloaded as data during
-# the ARM64 build and executed through Box64 only when JAVA_RUNTIME=zulu.
+# x86_64 Zulu Java 25 patch runtime. It is downloaded as data during the
+# ARM64 build and executed through Box64 only when JAVA_RUNTIME=zulu.
 # -----------------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS zulu-jre
 ARG ZULU_JRE_VERSION=25.0.5
-ARG INCLUDE_ZULU_JRE_OVERRIDE=true
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -94,17 +93,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /java-root/opt/zulu-jre
 
-RUN if [[ "${INCLUDE_ZULU_JRE_OVERRIDE,,}" == "true" ]]; then \
-        metadata="$(curl --fail --location --show-error --silent --retry 3 \
-            "https://api.azul.com/metadata/v1/zulu/packages/?java_version=${ZULU_JRE_VERSION}&os=linux&arch=x86&hw_bitness=64&ext=tar.gz&bundle_type=jre&release_status=ga&availability_types=CA")"; \
-        url="$(jq -er '.[0].download_url' <<< "$metadata")"; \
-        sha256="$(jq -er '.[0].sha256_hash' <<< "$metadata")"; \
-        curl --fail --location --show-error --silent --retry 3 "$url" --output /tmp/zulu-jre.tar.gz; \
-        echo "${sha256}  /tmp/zulu-jre.tar.gz" | sha256sum --check --strict; \
-        tar --extract --gzip --file /tmp/zulu-jre.tar.gz --strip-components=1 --directory /java-root/opt/zulu-jre; \
-        test -x /java-root/opt/zulu-jre/bin/java; \
-        rm -f /tmp/zulu-jre.tar.gz; \
-    fi
+RUN metadata="$(curl --fail --location --show-error --silent --retry 3 \
+        "https://api.azul.com/metadata/v1/zulu/packages/?java_version=${ZULU_JRE_VERSION}&os=linux&arch=x86&hw_bitness=64&ext=tar.gz&bundle_type=jre&release_status=ga&availability_types=CA")" \
+    && url="$(jq -er '.[0].download_url' <<< "$metadata")" \
+    && sha256="$(jq -er '.[0].sha256_hash' <<< "$metadata")" \
+    && curl --fail --location --show-error --silent --retry 3 "$url" --output /tmp/zulu-jre.tar.gz \
+    && echo "${sha256}  /tmp/zulu-jre.tar.gz" | sha256sum --check --strict \
+    && tar --extract --gzip --file /tmp/zulu-jre.tar.gz --strip-components=1 --directory /java-root/opt/zulu-jre \
+    && test -x /java-root/opt/zulu-jre/bin/java \
+    && rm -f /tmp/zulu-jre.tar.gz
 
 # -----------------------------------------------------------------------------
 # Final ARM64 image.
@@ -198,11 +195,8 @@ COPY --from=zulu-jre /java-root/ /
 
 # The JRE is downloaded as root. Keep it traversable and executable for the
 # non-root UID configured by Kubernetes, which may differ from the image user.
-ARG INCLUDE_ZULU_JRE_OVERRIDE=true
-RUN if [[ "${INCLUDE_ZULU_JRE_OVERRIDE,,}" == "true" ]]; then \
-        chmod -R a+rX /opt/zulu-jre \
-        && chmod a+x /opt/zulu-jre/bin/java; \
-    fi
+RUN chmod -R a+rX /opt/zulu-jre \
+    && chmod a+x /opt/zulu-jre/bin/java
 
 COPY --chmod=0755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
@@ -232,10 +226,8 @@ RUN chmod 0755 /usr/local/bin/java
 
 USER pz:pz
 
-RUN if [[ "${INCLUDE_ZULU_JRE_OVERRIDE,,}" == "true" ]]; then \
-        test -f /opt/zulu-jre/bin/java \
-        && test -x /opt/zulu-jre/bin/java; \
-    fi
+RUN test -f /opt/zulu-jre/bin/java \
+    && test -x /opt/zulu-jre/bin/java
 
 WORKDIR /opt/zomboid
 

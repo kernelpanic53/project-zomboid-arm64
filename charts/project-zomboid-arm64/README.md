@@ -52,7 +52,6 @@ Project Zomboid server depot. The alternate runtime remains Java 25 to avoid a
 major-version change; switching runtimes may change JIT behavior, but it cannot
 remove the x86_64-on-ARM64 emulation overhead or guarantee that C1 is stable.
 To build with a different Java 25 patch, pass
-`--build-arg ZULU_JRE_VERSION=<version>` and rebuild the image. To omit the
-alternate JRE from the image, pass
-`--build-arg INCLUDE_ZULU_JRE_OVERRIDE=false`; leave `server.javaRuntime` set
-to `bundled` in that case.
+`--build-arg ZULU_JRE_VERSION=<version>` and rebuild the image. The Zulu runtime
+is included in the image; leave `server.javaRuntime` set to `bundled` to keep
+using the server depot's Java runtime.

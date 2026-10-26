@@ -108,8 +108,6 @@ jobs:
           platforms: linux/arm64
           pull: true
           no-cache-filters: runtime
-          build-args: |
-            INCLUDE_ZULU_JRE_OVERRIDE=true
           load: true
           tags: zomboid-arm64:ci
           labels: ${{ steps.meta.outputs.labels }}

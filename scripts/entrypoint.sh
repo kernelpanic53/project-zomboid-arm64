@@ -121,7 +121,10 @@ install_server() {
     chmod -R u+rwX "$steamcmd_work_dir"
 
     log "Starting SteamCMD through Box64; the first download can take several minutes"
-    if BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$steamcmd_work_dir/linux32/steamcmd" "${steamcmd_args[@]}"; then
+    if BOX64_LOG="${BOX64_LOG:-0}" \
+        BOX64_LD_LIBRARY_PATH="$steamcmd_work_dir/linux32:${BOX64_LD_LIBRARY_PATH:-}" \
+        DEBUGGER=/usr/local/bin/box64 \
+        "$steamcmd_work_dir/steamcmd.sh" "${steamcmd_args[@]}"; then
         :
     else
         steamcmd_status=$?

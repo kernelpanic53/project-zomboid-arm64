@@ -94,7 +94,7 @@ RUN apt-get update \
     && mkdir -p /java-root/opt/zulu-jre
 
 RUN metadata="$(curl --fail --location --show-error --silent --retry 3 \
-        "https://api.azul.com/metadata/v1/zulu/packages/?java_version=${ZULU_JRE_VERSION}&os=linux&arch=x86&hw_bitness=64&ext=tar.gz&bundle_type=jre&release_status=ga&availability_types=CA")" \
+        "https://api.azul.com/metadata/v1/zulu/packages/?java_version=${ZULU_JRE_VERSION}&os=linux&arch=x64&ext=tar.gz&java_package_type=jre&release_status=ga&availability_types=CA")" \
     && url="$(jq -er '.[0].download_url' <<< "$metadata")" \
     && sha256="$(jq -er '.[0].sha256_hash' <<< "$metadata")" \
     && curl --fail --location --show-error --silent --retry 3 "$url" --output /tmp/zulu-jre.tar.gz \

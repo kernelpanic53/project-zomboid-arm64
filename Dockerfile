@@ -196,6 +196,11 @@ COPY --from=box64-builder /box64-root/ /
 COPY --from=depotdownloader /depot-root/ /
 COPY --from=zulu-jre /java-root/ /
 
+# The downloaded JRE is extracted as root in its build stage. Make its files
+# accessible to the unprivileged runtime user before switching users.
+RUN chown -R pz:pz /opt/zulu-jre \
+    && chmod -R u+rX /opt/zulu-jre
+
 COPY --chmod=0755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
 
@@ -223,6 +228,8 @@ EOF
 RUN chmod 0755 /usr/local/bin/java
 
 USER pz:pz
+
+RUN if [[ -e /opt/zulu-jre/bin/java ]]; then test -x /opt/zulu-jre/bin/java; fi
 
 WORKDIR /opt/zomboid
 

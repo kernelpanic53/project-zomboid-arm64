@@ -112,11 +112,23 @@ install_server() {
     steamcmd_args+=("validate" "+quit")
 
     # SteamCMD self-updates and writes package state beside its executable.
-    # The image root is read-only in the Helm deployment, so run a writable
-    # copy from the mounted home directory.
-    mkdir -p "$HOME/steamcmd"
-    cp -a "$STEAMCMD_DIR/." "$HOME/steamcmd/"
-    BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$HOME/steamcmd/linux32/steamcmd" "${steamcmd_args[@]}"
+    # Run a fresh writable copy because the image is read-only and the
+    # installer archive includes read-only files that break reuse on restarts.
+    local steamcmd_work_dir
+    local steamcmd_status=0
+    steamcmd_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/steamcmd.XXXXXX")"
+    cp -R "$STEAMCMD_DIR/." "$steamcmd_work_dir/"
+    chmod -R u+rwX "$steamcmd_work_dir"
+
+    if BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$steamcmd_work_dir/linux32/steamcmd" "${steamcmd_args[@]}"; then
+        :
+    else
+        steamcmd_status=$?
+    fi
+    rm -rf "$steamcmd_work_dir"
+    if [[ $steamcmd_status -ne 0 ]]; then
+        fail "SteamCMD failed with status ${steamcmd_status}"
+    fi
 
     if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then chmod +x "$SERVER_DIR/jre64/bin/java" || true; fi
     if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then chmod +x "$SERVER_DIR/jre64/lib/jspawnhelper" || true; fi

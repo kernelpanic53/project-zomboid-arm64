@@ -116,7 +116,7 @@ install_server() {
     # copy from the mounted home directory.
     mkdir -p "$HOME/steamcmd"
     cp -a "$STEAMCMD_DIR/." "$HOME/steamcmd/"
-    BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$HOME/steamcmd/linux64/steamcmd" "${steamcmd_args[@]}"
+    BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$HOME/steamcmd/linux32/steamcmd" "${steamcmd_args[@]}"
 
     if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then chmod +x "$SERVER_DIR/jre64/bin/java" || true; fi
     if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then chmod +x "$SERVER_DIR/jre64/lib/jspawnhelper" || true; fi

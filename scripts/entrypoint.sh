@@ -195,11 +195,6 @@ configure_java() {
         fail "Selected Java runtime '${JAVA_RUNTIME}' not found or not executable at ${java_bin}; rebuild the image with INCLUDE_ZULU_JRE_OVERRIDE=true to enable zulu"
     fi
 
-    jspawnhelper="$(dirname "$(dirname "$java_bin")")/lib/jspawnhelper"
-    if [[ -f "$jspawnhelper" ]]; then
-        chmod +x "$jspawnhelper" || true
-    fi
-
     log "Java runtime (${JAVA_RUNTIME}): ${java_bin}"
 
     # The /usr/local/bin/java wrapper launches the selected x86_64 runtime

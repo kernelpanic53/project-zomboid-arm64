@@ -196,7 +196,7 @@ COPY --from=zulu-jre /java-root/ /
 # The JRE is downloaded as root. Keep it traversable and executable for the
 # non-root UID configured by Kubernetes, which may differ from the image user.
 RUN chmod -R a+rX /opt/zulu-jre \
-    && chmod a+x /opt/zulu-jre/bin/java
+    && chmod a+x /opt/zulu-jre/bin/java /opt/zulu-jre/lib/jspawnhelper
 
 COPY --chmod=0755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 scripts/healthcheck.sh /usr/local/bin/healthcheck.sh

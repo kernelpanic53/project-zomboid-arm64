@@ -176,7 +176,6 @@ configure_steam_compatibility() {
 
 configure_java() {
     local java_bin
-    local jspawnhelper
     local java_output
 
     case "${JAVA_RUNTIME,,}" in

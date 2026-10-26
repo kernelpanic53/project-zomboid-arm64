@@ -5,7 +5,7 @@ set -Eeuo pipefail
 SERVER_DIR="${PZ_SERVER_DIR:-/opt/zomboid}"
 CONFIG_DIR="${PZ_CONFIG_DIR:-/config}"
 SERVER_PID_FILE="${CONFIG_DIR}/.pz-server.pid"
-DEPOTDOWNLOADER_DIR="${DEPOTDOWNLOADER_DIR:-/opt/depotdownloader}"
+STEAMCMD_DIR="${STEAMCMD_DIR:-/opt/steamcmd}"
 
 SERVER_NAME="${SERVER_NAME:-servertest}"
 SERVER_BRANCH="${SERVER_BRANCH:-public}"
@@ -84,73 +84,46 @@ require_command() {
 
 
 install_server() {
-    local depot_args=(
-        "-app"
-        "380870"
-        "-dir"
-        "$SERVER_DIR"
-        "-branch"
-        "$SERVER_BRANCH"
+    local steamcmd_args=(
+        "+@ShutdownOnFailedCommand" "1"
+        "+@NoPromptForPassword" "1"
+        "+force_install_dir" "$SERVER_DIR"
     )
 
-    log "Installing/updating Project Zomboid dedicated server"
+    log "Installing/updating Project Zomboid dedicated server with SteamCMD"
     log "AppID: 380870"
     log "Install directory: ${SERVER_DIR}"
     log "Branch: ${SERVER_BRANCH}"
 
     if [[ -n "${STEAM_USERNAME:-}" ]]; then
-        depot_args+=(
-            "-username"
-            "$STEAM_USERNAME"
-        )
+        steamcmd_args+=("+login" "$STEAM_USERNAME" "${STEAM_PASSWORD:-}")
+    else
+        steamcmd_args+=("+login" "anonymous")
+    fi
 
-        if [[ -n "${STEAM_PASSWORD:-}" ]]; then
-            depot_args+=(
-                "-password"
-                "$STEAM_PASSWORD"
-            )
+    if [[ "$SERVER_BRANCH" != "public" ]]; then
+        steamcmd_args+=("+app_update" "380870" "-beta" "$SERVER_BRANCH")
+        if [[ -n "${STEAM_BRANCH_PASSWORD:-}" ]]; then
+            steamcmd_args+=("-betapassword" "$STEAM_BRANCH_PASSWORD")
         fi
+    else
+        steamcmd_args+=("+app_update" "380870")
     fi
+    steamcmd_args+=("validate" "+quit")
 
-    if [[ -n "${STEAM_BRANCH_PASSWORD:-}" ]]; then
-        depot_args+=(
-            "-branchpassword"
-            "$STEAM_BRANCH_PASSWORD"
-        )
-    fi
+    # SteamCMD self-updates and writes package state beside its executable.
+    # The image root is read-only in the Helm deployment, so run a writable
+    # copy from the mounted home directory.
+    mkdir -p "$HOME/steamcmd"
+    cp -a "$STEAMCMD_DIR/." "$HOME/steamcmd/"
+    BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$HOME/steamcmd/linux64/steamcmd" "${steamcmd_args[@]}"
 
-    if [[ -n "${STEAM_CMDLINE_ARGS:-}" ]]; then
-        # shellcheck disable=SC2206
-        depot_args+=( ${STEAM_CMDLINE_ARGS} )
-    fi
-
-    "$DEPOTDOWNLOADER_DIR/DepotDownloader" "${depot_args[@]}"
-
-    # DepotDownloader writes depot files without the execute bit. We launch
-    # the bundled JRE directly (bypassing the pzexe ProjectZomboid64
-    # launcher), so the executables we actually need are the Java runtime
-    # binaries. Restore the execute bit on them.
-    if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then
-        chmod +x "$SERVER_DIR/jre64/bin/java" || true
-    fi
-
-    if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then
-        chmod +x "$SERVER_DIR/jre64/lib/jspawnhelper" || true
-    fi
-
-    # Validate the real launch artifacts rather than the (unused, and
-    # non-executable after download) ProjectZomboid64 pzexe launcher.
-    if [[ ! -x "$SERVER_DIR/jre64/bin/java" ]]; then
-        fail "Bundled Java runtime not found/executable at ${SERVER_DIR}/jre64/bin/java"
-    fi
-
-    if [[ ! -f "$SERVER_DIR/java/projectzomboid.jar" ]]; then
-        fail "Project Zomboid server jar not found at ${SERVER_DIR}/java/projectzomboid.jar"
-    fi
-
+    if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then chmod +x "$SERVER_DIR/jre64/bin/java" || true; fi
+    if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then chmod +x "$SERVER_DIR/jre64/lib/jspawnhelper" || true; fi
+    [[ -x "$SERVER_DIR/jre64/bin/java" ]] || fail "Bundled Java runtime not found/executable at ${SERVER_DIR}/jre64/bin/java"
+    [[ -f "$SERVER_DIR/java/projectzomboid.jar" ]] || fail "Project Zomboid server jar not found at ${SERVER_DIR}/java/projectzomboid.jar"
     log "Project Zomboid server installation/update completed"
 }
-
 
 configure_steam_compatibility() {
     # Project Zomboid's Steam networking code expects libsteam.so.
@@ -369,6 +342,11 @@ configure_jvm() {
 configure_environment() {
     export PZ_SERVER_DIR="$SERVER_DIR"
     export PZ_CONFIG_DIR="$CONFIG_DIR"
+    export BOX64_DYNACACHE="${BOX64_DYNACACHE:-1}"
+    export BOX64_DYNACACHE_FOLDER="${BOX64_DYNACACHE_FOLDER:-${CONFIG_DIR}/box64-dynacache}"
+    export BOX64_DYNACACHE_LIMIT="${BOX64_DYNACACHE_LIMIT:-2048}"
+
+    mkdir -p "$BOX64_DYNACACHE_FOLDER"
 
     export BOX64_PATH="${SERVER_DIR}/linux64:${SERVER_DIR}"
     export BOX64_LD_LIBRARY_PATH="${SERVER_DIR}/linux64:${SERVER_DIR}"
@@ -380,6 +358,9 @@ configure_environment() {
     log "BOX64_PATH=${BOX64_PATH}"
     log "BOX64_LD_LIBRARY_PATH=${BOX64_LD_LIBRARY_PATH}"
     log "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}"
+    log "BOX64_DYNACACHE=${BOX64_DYNACACHE}"
+    log "BOX64_DYNACACHE_FOLDER=${BOX64_DYNACACHE_FOLDER}"
+    log "BOX64_DYNACACHE_LIMIT=${BOX64_DYNACACHE_LIMIT} MiB"
 }
 
 
@@ -549,6 +530,7 @@ main() {
     # The bundled Java runtime is downloaded as part of the
     # Project Zomboid server installation.
     require_command curl
+    require_command box64
     require_command jq
 
     configure_environment
@@ -562,7 +544,7 @@ main() {
         log "UPDATE_ON_START=false and server files already exist; skipping update"
     fi
 
-    # These must happen after DepotDownloader has populated /opt/zomboid.
+    # These must happen after SteamCMD has populated /opt/zomboid.
     configure_steam_compatibility
     configure_java
     configure_server_ini

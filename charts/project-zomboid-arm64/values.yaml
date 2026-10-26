@@ -25,11 +25,9 @@ server:
   updateOnStart: true
   adminUsername: admin
   debug: false
-  # Steam networking is unreliable under Box64 on arm64 and a private
-  # server that cannot reach Steam's master servers will crash on startup.
-  # Default to non-Steam (direct-connect) networking. Set to false only if
-  # Steam networking is confirmed working in your environment.
-  noSteam: true
+  # SteamCMD manages the server install; enable Steam networking by default.
+  # Set true for direct-connect/no-Steam networking.
+  noSteam: false
   workshopIds: ""
   modIds: ""
   javaExtraArgs: ""
@@ -44,6 +42,14 @@ server:
   # Box64's Project Zomboid profile recommends these conservative settings.
   # They can reduce dynarec performance; jitMode remains independently tunable.
   box64:
+    dynacache: 1
+    dynacacheFolder: /config/box64-dynacache
+    dynacacheLimitMiB: 2048
+    dynarec: true
+    dynarecBigblock: 0
+    dynarecBleedingEdge: 0
+    dynarecBbLoop: 1
+    dynarecForward: 1
     dynarecStrongmem: 3
     dynarecSafeflags: 2
     dynarecAlignedAtomics: 1

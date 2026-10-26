@@ -48,36 +48,29 @@ RUN curl --fail --location --show-error --silent --retry 3 \
         /box64-root/usr/share/licenses/box64/LICENSE
 
 # -----------------------------------------------------------------------------
-# Native ARM64 DepotDownloader.
-#
-# It downloads the official Linux x86_64 Project Zomboid dedicated-server
-# depot without requiring x86 SteamCMD in the ARM64 image.
+# x86_64 SteamCMD, executed through Box64. This keeps server installation and
+# updates on Valve's supported Steam client path, including Steam-managed
+# branches and depots.
 # -----------------------------------------------------------------------------
-FROM ${DEBIAN_IMAGE} AS depotdownloader
+FROM ${DEBIAN_IMAGE} AS steamcmd
 ARG TARGETARCH
-
-ARG DEPOTDOWNLOADER_VERSION=3.4.0
-ARG DEPOTDOWNLOADER_SHA256=d9fb612ccebc1db8eeea3b4045d2221ec70431381393ce908fb72f01d4f9c812
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
     && test "${TARGETARCH:-$(dpkg --print-architecture)}" = arm64 \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        unzip \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /tmp/depotdownloader
+WORKDIR /tmp/steamcmd
 
 RUN curl --fail --location --show-error --silent --retry 3 \
-        "https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_${DEPOTDOWNLOADER_VERSION}/DepotDownloader-linux-arm64.zip" \
-        --output depotdownloader.zip \
-    && echo "${DEPOTDOWNLOADER_SHA256}  depotdownloader.zip" | sha256sum --check --strict \
-    && mkdir -p /depot-root/opt/depotdownloader \
-    && unzip -q depotdownloader.zip -d /depot-root/opt/depotdownloader \
-    && chmod 0755 /depot-root/opt/depotdownloader/DepotDownloader
+        https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
+        --output steamcmd.tar.gz \
+    && mkdir -p /steamcmd-root/opt/steamcmd \
+    && tar --extract --gzip --file steamcmd.tar.gz --directory /steamcmd-root/opt/steamcmd \
+    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux64/steamcmd \
+    && rm steamcmd.tar.gz
 
 # -----------------------------------------------------------------------------
 # x86_64 Zulu Java 25 patch runtime. It is downloaded as data during the
@@ -113,7 +106,7 @@ ARG PGID=1000
 ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="Project Zomboid dedicated server for ARM64" \
-      org.opencontainers.image.description="Project Zomboid Build 42 dedicated server for ARM64 Kubernetes using native DepotDownloader and Box64" \
+      org.opencontainers.image.description="Project Zomboid dedicated server for ARM64 Kubernetes using SteamCMD and Box64" \
       org.opencontainers.image.source="https://github.com/kernelpanic53/project-zomboid-arm64" \
       org.opencontainers.image.licenses="MIT"
 
@@ -123,8 +116,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/pz \
     PZ_SERVER_DIR=/opt/zomboid \
     PZ_CONFIG_DIR=/config \
-    DEPOTDOWNLOADER_DIR=/opt/depotdownloader \
+    STEAMCMD_DIR=/opt/steamcmd \
     BOX64_LOG=0 \
+    BOX64_DYNACACHE=1 \
+    BOX64_DYNACACHE_FOLDER=/config/box64-dynacache \
+    BOX64_DYNACACHE_LIMIT=2048 \
     BOX64_DYNAREC=1 \
     BOX64_DYNAREC_BIGBLOCK=0 \
     BOX64_DYNAREC_BLEEDING_EDGE=0 \
@@ -180,6 +176,7 @@ RUN apt-get update \
     && mkdir -p \
         /opt/zomboid \
         /config \
+        /config/box64-dynacache \
         /home/pz \
         /tmp/pz \
     && chown -R pz:pz \
@@ -190,7 +187,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=box64-builder /box64-root/ /
-COPY --from=depotdownloader /depot-root/ /
+COPY --from=steamcmd /steamcmd-root/ /
 COPY --from=zulu-jre /java-root/ /
 
 # The JRE is downloaded as root. Keep it traversable and executable for the

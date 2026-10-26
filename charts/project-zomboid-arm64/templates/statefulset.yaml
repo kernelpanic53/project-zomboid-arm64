@@ -140,6 +140,30 @@ spec:
             - name: JAVA_RUNTIME
               value: {{ .Values.server.javaRuntime | quote }}
 
+            - name: BOX64_DYNACACHE
+              value: {{ .Values.server.box64.dynacache | quote }}
+
+            - name: BOX64_DYNACACHE_FOLDER
+              value: {{ .Values.server.box64.dynacacheFolder | quote }}
+
+            - name: BOX64_DYNACACHE_LIMIT
+              value: {{ .Values.server.box64.dynacacheLimitMiB | quote }}
+
+            - name: BOX64_DYNAREC
+              value: {{ ternary "1" "0" .Values.server.box64.dynarec | quote }}
+
+            - name: BOX64_DYNAREC_BIGBLOCK
+              value: {{ .Values.server.box64.dynarecBigblock | quote }}
+
+            - name: BOX64_DYNAREC_BLEEDING_EDGE
+              value: {{ .Values.server.box64.dynarecBleedingEdge | quote }}
+
+            - name: BOX64_DYNAREC_BB_LOOP
+              value: {{ .Values.server.box64.dynarecBbLoop | quote }}
+
+            - name: BOX64_DYNAREC_FORWARD
+              value: {{ .Values.server.box64.dynarecForward | quote }}
+
             - name: BOX64_DYNAREC_STRONGMEM
               value: {{ .Values.server.box64.dynarecStrongmem | quote }}
 

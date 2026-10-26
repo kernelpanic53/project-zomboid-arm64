@@ -4,7 +4,7 @@ ARM64 Kubernetes/Docker image for the Project Zomboid dedicated server.
 
 
 - Debian ARM64 runtime
-- native ARM64 DepotDownloader to retrieve Steam AppID `380870`
+- x86_64 SteamCMD under Box64 to install/update Steam AppID `380870`
 - official Linux x86_64 Project Zomboid server files
 - Box64 to run the x86_64 server/JRE on ARM64
 - persistent game-install and server-config volumes
@@ -45,9 +45,10 @@ fit.
 Project Zomboid's Linux dedicated server is x86_64. This is therefore an
 ARM64 compatibility image, not a native ARM64 server. Box64 is required.
 
-Initial installation/update is intentionally done at container startup into a
-persistent PVC. This keeps the image smaller and allows `UPDATE_ON_START=true`
-to pick up a new Project Zomboid build without rebuilding the image.
+Initial installation/update is done by SteamCMD at container startup into a
+persistent PVC. This allows `UPDATE_ON_START=true` to pick up a new Project
+Zomboid build without rebuilding the image. Steam networking is enabled by
+default; set `server.noSteam=true` for direct-connect mode.
 
 ## Security maintenance
 

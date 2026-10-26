@@ -31,6 +31,13 @@ For a home ARM64 cluster using MetalLB, set `service.loadBalancerIP` if you want
 
 ## Box64 and Java runtime
 
+SteamCMD runs through Box64 to manage the server depot. Steam networking is
+enabled by default; set `server.noSteam=true` to launch with `-nosteam` for
+direct-connect mode. Box64 DynaCache is enabled and stored in the persistent
+config claim at `/config/box64-dynacache` (limited to 2048 MiB by default).
+Configure it under `server.box64.dynacache`, `dynacacheFolder`, and
+`dynacacheLimitMiB`.
+
 The chart defaults to Box64's conservative Project Zomboid settings and Java's
 interpreter mode for stability. The interpreter is slow; after confirming the
 server survives with these Box64 settings, try `server.jitMode=c1` for better

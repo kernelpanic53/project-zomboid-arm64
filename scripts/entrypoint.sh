@@ -120,6 +120,7 @@ install_server() {
     cp -R "$STEAMCMD_DIR/." "$steamcmd_work_dir/"
     chmod -R u+rwX "$steamcmd_work_dir"
 
+    log "Starting SteamCMD through Box64; the first download can take several minutes"
     if BOX64_LOG="${BOX64_LOG:-0}" /usr/local/bin/box64 "$steamcmd_work_dir/linux32/steamcmd" "${steamcmd_args[@]}"; then
         :
     else
@@ -129,6 +130,7 @@ install_server() {
     if [[ $steamcmd_status -ne 0 ]]; then
         fail "SteamCMD failed with status ${steamcmd_status}"
     fi
+    log "SteamCMD installation/update command completed"
 
     if [[ -f "$SERVER_DIR/jre64/bin/java" ]]; then chmod +x "$SERVER_DIR/jre64/bin/java" || true; fi
     if [[ -f "$SERVER_DIR/jre64/lib/jspawnhelper" ]]; then chmod +x "$SERVER_DIR/jre64/lib/jspawnhelper" || true; fi

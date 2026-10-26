@@ -134,7 +134,9 @@ resources:
 
 startupProbe:
   enabled: true
-  failureThreshold: 90
+  # Initial SteamCMD installs can spend a long time downloading the server
+  # depot before the game process exists for the health check to detect.
+  failureThreshold: 360
   periodSeconds: 10
   timeoutSeconds: 5
 readinessProbe:

@@ -120,11 +120,19 @@ install_server() {
     cp -R "$STEAMCMD_DIR/." "$steamcmd_work_dir/"
     chmod -R u+rwX "$steamcmd_work_dir"
 
-    log "Starting SteamCMD through Box64; the first download can take several minutes"
-    if BOX64_LOG="${BOX64_LOG:-0}" \
-        BOX64_LD_LIBRARY_PATH="$steamcmd_work_dir/linux32:${BOX64_LD_LIBRARY_PATH:-}" \
-        DEBUGGER=/usr/local/bin/box64 \
-        "$steamcmd_work_dir/steamcmd.sh" "${steamcmd_args[@]}"; then
+    log "Starting x86 SteamCMD through Box64; the first download can take several minutes"
+    # Valve's refreshed steamcmd.sh selects linuxarm64/steamcmd on an ARM64
+    # host, but the Linux SteamCMD manifest contains the x86 linux32 binary.
+    # Launch that binary explicitly; the image seeds the current package and
+    # inhibits bootstrap self-updates, so steamcmd.sh's restart logic is not
+    # needed here.
+    if (
+        cd "$steamcmd_work_dir"
+        BOX64_LOG="${BOX64_LOG:-0}" \
+            BOX64_LD_LIBRARY_PATH="$steamcmd_work_dir/linux32:${BOX64_LD_LIBRARY_PATH:-}" \
+            LD_LIBRARY_PATH="$steamcmd_work_dir/linux32:${LD_LIBRARY_PATH:-}" \
+            /usr/local/bin/box64 "$steamcmd_work_dir/linux32/steamcmd" "${steamcmd_args[@]}"
+    ); then
         :
     else
         steamcmd_status=$?

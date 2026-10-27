@@ -71,12 +71,12 @@ RUN curl --fail --location --show-error --silent --retry 3 \
         --output steamcmd.tar.gz \
     && mkdir -p /steamcmd-root/opt/steamcmd \
     && tar --extract --gzip --file steamcmd.tar.gz --directory /steamcmd-root/opt/steamcmd \
-    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux32/steamcmd \
+    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux64/steamcmd \
     && rm steamcmd.tar.gz
 
 COPY scripts/bootstrap-steamcmd.py /usr/local/bin/bootstrap-steamcmd.py
 RUN python3 /usr/local/bin/bootstrap-steamcmd.py \
-    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux32/steamcmd
+    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux64/steamcmd
 
 # -----------------------------------------------------------------------------
 # x86_64 Zulu Java 25 patch runtime. It is downloaded as data during the

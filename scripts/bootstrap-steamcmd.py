@@ -124,11 +124,11 @@ def main() -> None:
         shutil.copyfile(manifest_path, package_dir / "steam_cmd_linux.manifest")
         (root / "steam.cfg").write_text("BootStrapperInhibitAll=enable\n", encoding="ascii")
 
-    steamcmd = root / "linux32/steamcmd"
+    steamcmd = root / "linux64/steamcmd"
     if not steamcmd.is_file():
-        raise RuntimeError("Valve SteamCMD packages did not provide linux32/steamcmd")
+        raise RuntimeError("Valve SteamCMD packages did not provide linux64/steamcmd")
     steamcmd.chmod(steamcmd.stat().st_mode | 0o111)
-    print("Installed verified Valve SteamCMD packages; self-update is disabled", flush=True)
+    print("Installed verified Valve SteamCMD packages; using x86_64 and disabling self-update", flush=True)
 
 
 if __name__ == "__main__":

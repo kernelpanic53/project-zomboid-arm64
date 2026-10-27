@@ -126,12 +126,15 @@ install_server() {
     # fails while loading steamconsole.so. The image seeds the current package
     # and inhibits bootstrap self-updates, so steamcmd.sh's restart logic is
     # not needed here.
-    # Disable Box64's AES/PCLMULQDQ emulation for SteamCMD: it can prevent the
-    # client from completing its anonymous Steam connection on ARM64.
+    # SteamCMD's TLS/WebSocket connection can fail under Box64's ARM64
+    # dynarec even when native curl can reach Steam. Run SteamCMD in the
+    # interpreter for compatibility; this does not change the server's
+    # Box64 dynarec setting, and SteamCMD runs only during install/update.
     if (
         cd "$steamcmd_work_dir"
         BOX64_LOG="${BOX64_LOG:-0}" \
             BOX64_AES="${BOX64_AES:-0}" \
+            BOX64_DYNAREC=0 \
             BOX64_LD_LIBRARY_PATH="$steamcmd_work_dir/linux64:${BOX64_LD_LIBRARY_PATH:-}" \
             BOX64_PCLMULQDQ="${BOX64_PCLMULQDQ:-0}" \
             LD_LIBRARY_PATH="$steamcmd_work_dir/linux64:${LD_LIBRARY_PATH:-}" \

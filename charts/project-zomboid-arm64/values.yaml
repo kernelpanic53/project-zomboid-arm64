@@ -134,9 +134,10 @@ resources:
 
 startupProbe:
   enabled: true
-  # Initial SteamCMD installs can spend a long time downloading the server
-  # depot before the game process exists for the health check to detect.
-  failureThreshold: 360
+  # SteamCMD downloads and validates the server before the game process exists.
+  # On slower ARM64 systems this may take several hours; Kubernetes suppresses
+  # liveness and readiness checks until this startup probe succeeds.
+  failureThreshold: 2160
   periodSeconds: 10
   timeoutSeconds: 5
 readinessProbe:

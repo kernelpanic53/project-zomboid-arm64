@@ -6,9 +6,15 @@ on:
       - main
     tags:
       - "v*"
+    paths:
+      - "Dockerfile"
+      - "scripts/**"
   pull_request:
     branches:
       - main
+    paths:
+      - "Dockerfile"
+      - "scripts/**"
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:

@@ -71,7 +71,7 @@ RUN curl --fail --location --show-error --silent --retry 3 \
         --output steamcmd.tar.gz \
     && mkdir -p /steamcmd-root/opt/steamcmd \
     && tar --extract --gzip --file steamcmd.tar.gz --directory /steamcmd-root/opt/steamcmd \
-    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux64/steamcmd \
+    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux32/steamcmd \
     && rm steamcmd.tar.gz
 
 COPY scripts/bootstrap-steamcmd.py /usr/local/bin/bootstrap-steamcmd.py

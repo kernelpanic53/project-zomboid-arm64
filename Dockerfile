@@ -49,9 +49,10 @@ RUN curl --fail --location --show-error --silent --retry 3 \
         /box64-root/usr/share/licenses/box64/LICENSE
 
 # -----------------------------------------------------------------------------
-# x86_64 SteamCMD, executed through Box64. This keeps server installation and
-# updates on Valve's supported Steam client path, including Steam-managed
-# branches and depots.
+# x86_64 SteamCMD, executed through Box64. Seed the latest Valve packages from
+# the media feed because the bootstrapper's client-download hostname currently
+# has a broken Akamai DNS target. SteamCMD's own updater is disabled in
+# steam.cfg; rebuilds refresh these verified packages from Valve's manifest.
 # -----------------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS steamcmd
 ARG TARGETARCH
@@ -60,7 +61,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
     && test "${TARGETARCH:-$(dpkg --print-architecture)}" = arm64 \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/steamcmd
@@ -72,6 +73,10 @@ RUN curl --fail --location --show-error --silent --retry 3 \
     && tar --extract --gzip --file steamcmd.tar.gz --directory /steamcmd-root/opt/steamcmd \
     && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux32/steamcmd \
     && rm steamcmd.tar.gz
+
+COPY scripts/bootstrap-steamcmd.py /usr/local/bin/bootstrap-steamcmd.py
+RUN python3 /usr/local/bin/bootstrap-steamcmd.py \
+    && chmod 0755 /steamcmd-root/opt/steamcmd/steamcmd.sh /steamcmd-root/opt/steamcmd/linux32/steamcmd
 
 # -----------------------------------------------------------------------------
 # x86_64 Zulu Java 25 patch runtime. It is downloaded as data during the

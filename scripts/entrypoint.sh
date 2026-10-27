@@ -116,7 +116,11 @@ install_server() {
     # installer archive includes read-only files that break reuse on restarts.
     local steamcmd_work_dir
     local steamcmd_status=0
+    local steamcmd_attempt=1
+    local steamcmd_max_attempts=3
+    local steamcmd_log
     steamcmd_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/steamcmd.XXXXXX")"
+    steamcmd_log="${steamcmd_work_dir}/steamcmd.log"
     cp -R "$STEAMCMD_DIR/." "$steamcmd_work_dir/"
     chmod -R u+rwX "$steamcmd_work_dir"
 
@@ -130,20 +134,33 @@ install_server() {
     # dynarec even when native curl can reach Steam. Run SteamCMD in the
     # interpreter for compatibility; this does not change the server's
     # Box64 dynarec setting, and SteamCMD runs only during install/update.
-    if (
-        cd "$steamcmd_work_dir"
-        BOX64_LOG="${BOX64_LOG:-0}" \
-            BOX64_AES="${BOX64_AES:-0}" \
-            BOX64_DYNAREC=0 \
-            BOX64_LD_LIBRARY_PATH="$steamcmd_work_dir/linux64:${BOX64_LD_LIBRARY_PATH:-}" \
-            BOX64_PCLMULQDQ="${BOX64_PCLMULQDQ:-0}" \
-            LD_LIBRARY_PATH="$steamcmd_work_dir/linux64:${LD_LIBRARY_PATH:-}" \
-            /usr/local/bin/box64 "$steamcmd_work_dir/linux64/steamcmd" "${steamcmd_args[@]}"
-    ); then
-        :
-    else
-        steamcmd_status=$?
-    fi
+    while (( steamcmd_attempt <= steamcmd_max_attempts )); do
+        log "SteamCMD attempt ${steamcmd_attempt}/${steamcmd_max_attempts}"
+        if (
+            cd "$steamcmd_work_dir"
+            BOX64_LOG="${BOX64_LOG:-0}" \
+                BOX64_AES="${BOX64_AES:-0}" \
+                BOX64_DYNAREC=0 \
+                BOX64_LD_LIBRARY_PATH="$steamcmd_work_dir/linux64:${BOX64_LD_LIBRARY_PATH:-}" \
+                BOX64_PCLMULQDQ="${BOX64_PCLMULQDQ:-0}" \
+                LD_LIBRARY_PATH="$steamcmd_work_dir/linux64:${LD_LIBRARY_PATH:-}" \
+                /usr/local/bin/box64 "$steamcmd_work_dir/linux64/steamcmd" "${steamcmd_args[@]}"
+        ) 2>&1 | tee "$steamcmd_log"; then
+            steamcmd_status=0
+            break
+        else
+            steamcmd_status=$?
+        fi
+
+        if (( steamcmd_attempt < steamcmd_max_attempts )) \
+            && grep -Fq "Failed to install app '380870' (Missing configuration)" "$steamcmd_log"; then
+            log "SteamCMD did not have Project Zomboid app configuration yet; retrying in 5 seconds"
+            steamcmd_attempt=$((steamcmd_attempt + 1))
+            sleep 5
+            continue
+        fi
+        break
+    done
     rm -rf "$steamcmd_work_dir"
     if [[ $steamcmd_status -ne 0 ]]; then
         fail "SteamCMD failed with status ${steamcmd_status}"

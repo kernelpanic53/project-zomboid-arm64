@@ -204,28 +204,7 @@ RUN chmod -R a+rX /opt/zulu-jre \
 COPY --chmod=0755 scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
 
-# Project Zomboid's pzexe launcher expects to execute "java" by name.
-# The bundled Java runtime is x86_64, so route the command through Box64.
-RUN cat > /usr/local/bin/java <<'EOF'
-#!/bin/sh
-set -eu
-
-SERVER_DIR="${PZ_SERVER_DIR:-/opt/zomboid}"
-if [ "${JAVA_RUNTIME:-bundled}" = "zulu" ]; then
-    JAVA_BIN="/opt/zulu-jre/bin/java"
-else
-    JAVA_BIN="${SERVER_DIR}/jre64/bin/java"
-fi
-
-if [ ! -x "$JAVA_BIN" ]; then
-    echo "ERROR: selected Java runtime not found at $JAVA_BIN" >&2
-    exit 1
-fi
-
-exec /usr/local/bin/box64 "$JAVA_BIN" "$@"
-EOF
-
-RUN chmod 0755 /usr/local/bin/java
+COPY --chmod=0755 scripts/java-wrapper.sh /usr/local/bin/java
 
 USER pz:pz
 
